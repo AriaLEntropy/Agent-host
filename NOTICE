@@ -1,0 +1,4 @@
+`src/tunnel/` 里的隧道、配对和测试向量来自 dsh-scan-remote（提交 ba18aaf），许可证 MIT。
+原版权：Copyright (c) 2026 dsh-mobile contributors。
+
+本仓库其余代码是 Agent-host 自己的。数据目录用 `%APPDATA%\agent-host`（其他系统是 `~/.agent-host`），不读写 `~/.botbus/`。
