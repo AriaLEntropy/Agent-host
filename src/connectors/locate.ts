@@ -1,7 +1,8 @@
 import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
 
-const EXTENSIONS = process.platform === "win32" ? ["", ".exe", ".cmd", ".bat"] : [""];
+const EXTENSIONS =
+  process.platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
 const SHIM_LIMIT = 64 * 1024;
 
 function canRun(path: string) {

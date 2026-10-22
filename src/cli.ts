@@ -34,7 +34,14 @@ program
   .action(async () => {
     let config = await prepare();
     if (!config.hostToken) config = await pair(config);
-    const client = new RelayClient(config);
+    const client = new RelayClient(config, {
+      onAuthRejected: (detail) => {
+        console.error(
+          `This computer is no longer paired (${detail}). Run "npm run dev -- pair" (or "npm start -- pair") and scan the QR again.`,
+        );
+        process.exit(1);
+      },
+    });
     await client.start();
     const stop = () => {
       client.stop();

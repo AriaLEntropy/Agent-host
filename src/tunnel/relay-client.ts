@@ -39,6 +39,42 @@ const MAX_HTTP_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_HTTP_CHANNELS = 32;
 const MAX_WS_CHANNELS = 16;
 const HEALTH_FAILURE_THRESHOLD = 3;
+const DSH_PROBE_TIMEOUT_MS = 2000;
+
+export type RelayClientOptions = {
+  /** Decides whether the local DSH web answers on this port. */
+  probeDsh?: (port: number) => Promise<boolean>;
+  /** Fired once when Relay rejects the host credential (close code 4003). */
+  onAuthRejected?: (detail: string) => void;
+};
+
+/**
+ * Any HTTP answer from 127.0.0.1:<port> means the DSH web is running; the
+ * status code does not matter (401 on an unauthenticated page still means up).
+ */
+export function probeDsh(port: number, timeoutMs = DSH_PROBE_TIMEOUT_MS): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const request = http.request(
+      { hostname: "127.0.0.1", port, path: "/", method: "GET", timeout: timeoutMs },
+      (response) => {
+        response.resume();
+        finish(true);
+      },
+    );
+    request.on("timeout", () => {
+      request.destroy();
+      finish(false);
+    });
+    request.on("error", () => finish(false));
+    request.end();
+  });
+}
 
 export class HealthStatusTracker {
   private failures = 0;
@@ -116,6 +152,8 @@ export class RelayClient {
   private stopped = false;
   private authenticated = false;
   private health = false;
+  private readonly healthTracker = new HealthStatusTracker();
+  private probing = false;
   private retry = 0;
   private connectGeneration = 0;
   private heartbeat?: NodeJS.Timeout;
@@ -128,7 +166,10 @@ export class RelayClient {
 
   private agentId: string;
 
-  constructor(private config: Config) {
+  constructor(
+    private config: Config,
+    private readonly options: RelayClientOptions = {},
+  ) {
     this.agentId = config.agentId ?? createAgentId();
   }
 
@@ -237,8 +278,11 @@ export class RelayClient {
       this.closeAllSessions();
       if (this.stopped) return;
       if (code === 4003) {
-        this.stopped = true;
+        const detail = String(reason ?? "").trim();
         console.log("Relay rejected the host credential; not reconnecting");
+        if (detail) console.log(`Relay reason: ${detail}`);
+        this.stop();
+        this.options.onAuthRejected?.(detail || "unauthorized");
         return;
       }
       const delay = reconnectDelayMs(this.retry++);
@@ -288,10 +332,22 @@ export class RelayClient {
   }
 
   private async checkHealth() {
+    if (this.stopped || this.probing) return;
+    this.probing = true;
+    const probe = this.options.probeDsh ?? probeDsh;
+    let reachable = false;
+    try {
+      reachable = await probe(this.config.dshPort);
+    } catch {
+      reachable = false;
+    } finally {
+      this.probing = false;
+    }
+    if (this.stopped) return;
     const before = this.health;
-    this.health = true;
+    this.health = this.healthTracker.update(reachable);
     if (before !== this.health || this.authenticated)
-      this.sendOuter("status", { dsh: "online" });
+      this.sendOuter("status", { dsh: this.health ? "online" : "offline" });
   }
 
   private handle(msg: Envelope) {
@@ -299,7 +355,7 @@ export class RelayClient {
       this.authenticated = true;
       this.retry = 0;
       console.log(
-        `Connected to Relay; host is ${this.health ? "online" : "offline"}`,
+        `Connected to Relay; DSH web is ${this.health ? "online" : "offline"}`,
       );
       this.sendOuter("status", { dsh: this.health ? "online" : "offline" });
       clearInterval(this.heartbeat);
@@ -424,6 +480,7 @@ export class RelayClient {
       hostName: this.config.hostName,
       hostVersion: PLUGIN_VERSION,
       platform: hostPlatform(),
+      forwardsDsh: this.health,
       body: Buffer.from(msg.payload.bodyB64 ?? "", "base64"),
     });
     this.sendInner(
