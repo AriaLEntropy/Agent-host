@@ -1,0 +1,18 @@
+{
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "name": "Demo 的 MacBook Pro",
+  "platform": "macos",
+  "online": true,
+  "lastSeenAt": "2026-09-26T08:02:00Z",
+  "appVersion": "1.1.0",
+  "connectors": [
+    {
+      "kind": "acp",
+      "displayName": "Gemini CLI",
+      "available": true,
+      "enabled": true,
+      "status": "ok",
+      "taskCount": 1
+    }
+  ]
+}

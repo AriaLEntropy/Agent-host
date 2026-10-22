@@ -1,0 +1,15 @@
+{
+  "id": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+  "createdAt": "2026-09-26T07:46:00Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "approve",
+  "approve": {
+    "taskId": "claude:3f9a1c2e-5d6b-4e7f-8a90-b1c2d3e4f5a6",
+    "requestId": "toolu_01ExampleAskQuestion",
+    "decision": "allow",
+    "answers": {
+      "0": ["发新版"],
+      "1": ["手机", "手表"]
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "kind": "notify",
+  "notify": {
+    "taskId": "codex:01a0ab79-8c36-7011-bda3-10587db84466",
+    "category": "TASK_DONE",
+    "title": "Codex 任务完成",
+    "body": "已完成：LessonPlayer 现在铺满屏幕并自动进入下一步。",
+    "agentName": "Demo 的 MacBook Pro"
+  }
+}

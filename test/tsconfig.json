@@ -6,11 +6,7 @@
     "strict": true,
     "types": ["node"],
     "noEmit": true,
-    "skipLibCheck": true,
-    "allowImportingTsExtensions": true,
-    "paths": {
-      "zod": ["./../node_modules/zod/index.d.ts"]
-    }
+    "skipLibCheck": true
   },
   "include": ["./**/*.ts", "../src/**/*.ts"]
 }

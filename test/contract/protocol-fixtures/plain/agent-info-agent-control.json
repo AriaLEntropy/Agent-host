@@ -1,0 +1,22 @@
+{
+  "agentId": "Kq7ZbN2xW9vTpL4mCdR5gA",
+  "name": "Demo 的 Mac Studio",
+  "platform": "macos",
+  "online": true,
+  "lastSeenAt": "2026-10-04T09:00:00Z",
+  "appVersion": "1.1.0",
+  "connectors": [
+    {
+      "kind": "codex",
+      "displayName": "Codex",
+      "available": true,
+      "enabled": true,
+      "status": "error",
+      "taskCount": 5,
+      "lastError": "app-server 没有响应"
+    }
+  ],
+  "projectsRoot": "/Users/me/Documents/BotBusProjects",
+  "canRestartConnectors": true,
+  "canChooseProjectParent": true
+}

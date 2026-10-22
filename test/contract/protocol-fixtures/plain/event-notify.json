@@ -1,0 +1,10 @@
+{
+  "kind": "notify",
+  "notify": {
+    "taskId": "codex:01a0b000-0000-7000-8000-000000000001",
+    "category": "TASK_APPROVAL",
+    "title": "Codex 等待审批",
+    "body": "执行 rm -rf build/",
+    "requestId": "req-7f3a"
+  }
+}

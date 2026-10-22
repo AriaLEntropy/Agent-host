@@ -1,0 +1,13 @@
+{
+  "id": "7c2d3e4f-5061-4b72-8c83-a4b5c6d7e8f2",
+  "createdAt": "2026-09-28T09:00:00Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "startTask",
+  "startTask": {
+    "source": "codex",
+    "projectPath": "/Users/rico/work/landing-page",
+    "prompt": "给定价页加一组月付 / 年付切换",
+    "autoApprove": true,
+    "worktree": true
+  }
+}

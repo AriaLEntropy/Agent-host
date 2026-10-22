@@ -32,7 +32,7 @@
     "probe:capacity": "tsx scripts/capacity-probe.ts",
     "probe:latency": "tsx scripts/latency-probe.ts",
     "smoke:admin": "tsx scripts/admin-smoke.ts",
-    "test": "tsx --import ./test/resolve-zod.mjs --test --test-concurrency=1 test/tunnel/*.test.ts test/bus/*.test.ts test/connectors/*.test.ts"
+    "test": "tsx --test --test-concurrency=1 test/tunnel/*.test.ts test/bus/*.test.ts test/connectors/*.test.ts"
   },
   "dependencies": {
     "commander": "^13.0.0",

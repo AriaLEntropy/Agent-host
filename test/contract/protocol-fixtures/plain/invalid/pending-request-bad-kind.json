@@ -1,0 +1,18 @@
+{
+  "id": "codex:bad-kind",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "source": "codex",
+  "title": "坏的请求类型",
+  "projectPath": "/Users/me/Projects/x",
+  "projectName": "x",
+  "status": "waitingApproval",
+  "pendingRequest": {
+    "id": "req-x",
+    "kind": "shell",
+    "summary": "执行 ls"
+  },
+  "origin": "desktop",
+  "controllable": true,
+  "startedAt": "2026-09-17T08:00:00Z",
+  "updatedAt": "2026-09-17T08:00:00Z"
+}

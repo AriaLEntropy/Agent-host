@@ -14,7 +14,7 @@ import { resetRuntime } from "../../src/connectors/runtime.js";
 
 const agentId = "hV3nQ7pLxK2mR8sTfW4bZQ";
 const fixtureDir = fileURLToPath(
-  new URL("../../../botbus-protocol/protocol-fixtures/plain", import.meta.url),
+  new URL("../contract/protocol-fixtures/plain", import.meta.url),
 );
 
 test("every plain command fixture decodes and produces a command result", async () => {

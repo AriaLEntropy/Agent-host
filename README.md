@@ -94,7 +94,7 @@ npm start -- up
 | 配对时报 `Pairing failed (401)` | 公共 Relay 与本地 Relay 的配对接口不一致；改用本仓库的 `dsh-scan-remote/relay` 或同版本部署 |
 | 手机连不上 | 同一网络、防火墙、Relay 是否 `HOST=0.0.0.0`、`PUBLIC_RELAY_URL` 是否手机可达 |
 | 终端 `Paired as` 但手机没反应 | App 版本是否支持 Agent-host（会请求 `/bus/describe`） |
-| DSH 页面离线 | 先启动本机 DSH；`/bus` 接口仍然可用 |
+| DSH 页面离线 | 先启动本机 DSH；`/bus` 接口仍然可用。此时后台/手机会显示「DSH 未连接」，5 秒探测、连续 3 次失败后才翻转 |
 | 撤销后手机还连着 | 等一次重连；必要时重启 App |
 
 ## 开发
@@ -104,6 +104,13 @@ npm test
 npx tsx src/cli.ts up
 ```
 
-- 协议 schema：`botbus-protocol/src/protocol.ts`
+- 协议 schema：本仓库副本在 `test/contract/`（源自 `botbus-protocol` 提交 `9389165`，Apache-2.0）；同步方法见 `test/contract/README.md`
+- 契约校验：`npx tsc -p test/tsconfig.json`（类型对齐）+ `npm test`（用官方 fixtures 跑 `/bus` 输出）
 - 测试脚本：`scripts/`（`measure:snapshot`、`smoke:bus`、`smoke:ws`、`smoke:commands`、`probe:capacity`）
 - 上游来源：见 [NOTICE](NOTICE)
+
+`npm test` 和 `npm run build` 只依赖本仓库。`smoke:*` / `probe:*` 需要一个 Relay 服务（它属于另一个仓库，不在本项目里）：
+
+1. 默认找同级目录 `..\dsh-scan-remote\relay\dist\server.js`，找不到会直接报错并给出三条出路；
+2. `AGENT_HOST_RELAY_DIR` 指向任意一份 relay 源码 checkout（必须有 `dist/server.js`）；
+3. `AGENT_HOST_RELAY_URL` 指向一个已经在跑的 Relay（本机或公网），完全不碰本地源码。

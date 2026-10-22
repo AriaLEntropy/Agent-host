@@ -1,0 +1,13 @@
+{
+  "id": "6b1c2d3e-4f50-4a61-8b72-93a4b5c6d7fb",
+  "createdAt": "2026-09-27T08:07:00Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "startTask",
+  "startTask": {
+    "source": "claude",
+    "projectPath": "/Users/me/Projects/lesson-creator",
+    "prompt": "给课程列表加一个按难度筛选",
+    "model": "opus",
+    "effort": "high"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "id": "7a1c0e2d-5b3f-4c8a-9d6e-2f1a0b9c8d7e",
+  "createdAt": "2026-09-17T09:10:00Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "startTask",
+  "startTask": {
+    "source": "claude",
+    "projectPath": "",
+    "prompt": "写一段 zsh 函数，批量改文件名"
+  }
+}

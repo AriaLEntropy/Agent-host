@@ -1,0 +1,11 @@
+{
+  "id": "b7c8d9e0-f1a2-4b3c-8d4e-5f6a7b8c9d0e",
+  "createdAt": "2026-09-17T08:22:00Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "approve",
+  "approve": {
+    "taskId": "codex:01a0c000-0000-7000-8000-000000000002",
+    "requestId": "req-fc-9",
+    "decision": "deny"
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "agents": [
+    {
+      "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+      "name": "Demo 的 MacBook Pro",
+      "platform": "macos",
+      "online": true,
+      "lastSeenAt": "2026-09-17T08:00:00Z",
+      "appVersion": "0.3.0",
+      "connectors": [
+        {
+          "kind": "codex",
+          "displayName": "Codex",
+          "available": true,
+          "enabled": true,
+          "status": "ok",
+          "taskCount": 1
+        },
+        {
+          "kind": "claude",
+          "displayName": "Claude Code",
+          "available": true,
+          "enabled": true,
+          "status": "ok",
+          "taskCount": 1
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "codex:01a0ab79-8c36-7011-bda3-10587db84466",
+      "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+      "source": "codex",
+      "title": "修复课程铺满并自动下一步",
+      "projectPath": "/Users/me/Projects/lesson-creator",
+      "projectName": "lesson-creator",
+      "status": "running",
+      "lastMessage": "正在检查 LessonPlayer.tsx 的布局逻辑。",
+      "origin": "desktop",
+      "controllable": false,
+      "startedAt": "2026-09-17T07:58:12Z",
+      "updatedAt": "2026-09-17T08:00:00Z"
+    },
+    {
+      "id": "claude:d3a0850c-c094-4176-b47f-574449d728e3",
+      "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+      "source": "claude",
+      "title": "写一个 Apple Watch 的 app",
+      "projectPath": "/Users/me/Projects/botbus",
+      "projectName": "botbus",
+      "status": "completed",
+      "lastMessage": "Spec 已写入并提交。",
+      "origin": "desktop",
+      "controllable": true,
+      "startedAt": "2026-09-17T06:33:36Z",
+      "updatedAt": "2026-09-17T07:40:00Z"
+    }
+  ],
+  "projects": [
+    {
+      "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+      "path": "/Users/me/Projects/lesson-creator",
+      "name": "lesson-creator",
+      "lastUsedAt": "2026-09-17T08:00:00Z",
+      "pinned": false
+    },
+    {
+      "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+      "path": "/Users/me/Projects/botbus",
+      "name": "botbus",
+      "lastUsedAt": "2026-09-17T07:40:00Z",
+      "pinned": true
+    }
+  ],
+  "recentResults": [],
+  "recentMessages": [],
+  "seq": 0,
+  "generatedAt": "2026-09-17T08:00:00Z"
+}

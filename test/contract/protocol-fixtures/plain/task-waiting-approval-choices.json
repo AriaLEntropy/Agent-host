@@ -1,0 +1,29 @@
+{
+  "id": "openclaw:agent:main:main",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "source": "openclaw",
+  "title": "清理下载目录里的临时文件",
+  "projectPath": "/Users/me/.openclaw/workspace",
+  "projectName": "workspace",
+  "status": "waitingApproval",
+  "pendingRequest": {
+    "id": "ap-7",
+    "kind": "command",
+    "summary": "rm -rf ~/Downloads/tmp",
+    "detail": "目录：/Users/me/.openclaw/workspace",
+    "questions": [
+      {
+        "id": "scope",
+        "question": "允许范围",
+        "options": [
+          { "label": "只这一次" },
+          { "label": "以后都允许", "description": "记进白名单，同样的命令以后不再问" }
+        ]
+      }
+    ]
+  },
+  "origin": "desktop",
+  "controllable": true,
+  "startedAt": "2026-09-26T08:00:00Z",
+  "updatedAt": "2026-09-26T08:01:00Z"
+}

@@ -1,0 +1,28 @@
+{
+  "agentId": "Kq7ZbN2xW9vTpL4mCdR5gA",
+  "name": "Demo 的 Mac Studio",
+  "platform": "macos",
+  "online": true,
+  "lastSeenAt": "2026-09-17T08:21:00Z",
+  "appVersion": "0.3.0",
+  "connectors": [
+    {
+      "kind": "codex",
+      "displayName": "Codex",
+      "available": true,
+      "enabled": true,
+      "status": "ok",
+      "taskCount": 3
+    },
+    {
+      "kind": "claude",
+      "displayName": "Claude Code",
+      "available": false,
+      "enabled": false,
+      "status": "degraded",
+      "taskCount": 0,
+      "lastError": "未找到 claude 可执行文件，也没有 ~/.claude 数据库"
+    }
+  ],
+  "projectsRoot": "/Users/me/Documents/BotBusProjects"
+}

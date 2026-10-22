@@ -1,0 +1,11 @@
+{
+  "id": "6b1c2d3e-4f50-4a61-8b72-93a4b5c6d7fa",
+  "createdAt": "2026-09-27T08:06:00Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "followUp",
+  "followUp": {
+    "taskId": "codex:01a0b000-0000-7000-8000-000000000009",
+    "prompt": "换个模型",
+    "model": "--dangerously-skip-permissions"
+  }
+}

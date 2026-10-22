@@ -4,3 +4,5 @@
 协议 schema 来自 botbus-protocol（提交 9389165），许可证 Apache-2.0；测试按上游 `src/protocol.ts` 校验快照。
 
 本仓库其余代码是 Agent-host 自己的。数据目录用 `%APPDATA%\agent-host`（其他系统是 `~/.agent-host`），不读写 `~/.botbus/`。
+
+该 schema 与 protocol-fixtures/plain 样本已复制到本仓库 test/contract/（同一提交），测试不再需要并列 clone 上游仓库；同步方法见 test/contract/README.md。

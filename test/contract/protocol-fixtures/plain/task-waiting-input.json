@@ -1,0 +1,19 @@
+{
+  "id": "claude:7c1e2f3a-4b5c-4d6e-8f90-a1b2c3d4e5f6",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "source": "claude",
+  "title": "整理 README 的安装步骤",
+  "projectPath": "/Users/me/Projects/botbus",
+  "projectName": "botbus",
+  "status": "waitingInput",
+  "pendingRequest": {
+    "id": "req-input-01",
+    "kind": "input",
+    "summary": "Claude 在等待你的回答",
+    "question": "README 里要保留 Homebrew 安装方式吗？"
+  },
+  "origin": "watch",
+  "controllable": true,
+  "startedAt": "2026-09-17T08:10:00Z",
+  "updatedAt": "2026-09-17T08:12:00Z"
+}

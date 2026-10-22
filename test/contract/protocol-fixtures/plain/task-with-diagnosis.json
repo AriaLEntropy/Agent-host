@@ -1,0 +1,18 @@
+{
+  "id": "claude:diagnosis-example",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "source": "claude",
+  "title": "整理文稿里的项目",
+  "projectPath": "/Users/me/Documents/example",
+  "projectName": "example",
+  "status": "failed",
+  "lastMessage": "claude 退出了，没有拿到 session id",
+  "origin": "watch",
+  "controllable": true,
+  "startedAt": "2026-10-03T08:00:00Z",
+  "updatedAt": "2026-10-03T08:01:00Z",
+  "diagnosis": {
+    "kind": "folderAccessDenied",
+    "folder": "documents"
+  }
+}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { Snapshot } from "../../../botbus-protocol/src/protocol.ts";
+import { Snapshot } from "../contract/protocol.js";
 import { waitForCommands } from "../../src/bus/commands.js";
 import { routeBus } from "../../src/bus/router.js";
 import { busStore } from "../../src/bus/store.js";

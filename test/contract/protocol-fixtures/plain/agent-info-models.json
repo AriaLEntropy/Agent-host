@@ -1,0 +1,51 @@
+{
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "name": "Demo 的 MacBook Pro",
+  "platform": "macos",
+  "online": true,
+  "lastSeenAt": "2026-09-27T08:02:00Z",
+  "appVersion": "1.1.0",
+  "connectors": [
+    {
+      "kind": "codex",
+      "displayName": "Codex",
+      "available": true,
+      "enabled": true,
+      "status": "ok",
+      "taskCount": 3,
+      "models": [
+        {
+          "id": "gpt-6-sol",
+          "displayName": "GPT-6-Sol",
+          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+          "defaultEffort": "medium"
+        },
+        {
+          "id": "gpt-5.5",
+          "displayName": "GPT-5.5",
+          "efforts": ["low", "medium", "high", "xhigh"],
+          "defaultEffort": "xhigh"
+        }
+      ]
+    },
+    {
+      "kind": "claude",
+      "displayName": "Claude Code",
+      "available": true,
+      "enabled": true,
+      "status": "ok",
+      "taskCount": 2,
+      "models": [
+        {
+          "id": "opus",
+          "displayName": "Opus",
+          "efforts": ["low", "medium", "high", "xhigh", "max"]
+        },
+        {
+          "id": "haiku",
+          "displayName": "Haiku"
+        }
+      ]
+    }
+  ]
+}

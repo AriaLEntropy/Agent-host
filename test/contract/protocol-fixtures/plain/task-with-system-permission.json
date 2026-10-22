@@ -1,0 +1,28 @@
+{
+  "id": "codex:permission-example",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "source": "codex",
+  "title": "整理项目文件",
+  "projectPath": "/Users/me/Projects/example",
+  "projectName": "example",
+  "status": "failed",
+  "lastMessage": "Operation not permitted",
+  "origin": "watch",
+  "controllable": true,
+  "startedAt": "2026-09-25T08:00:00Z",
+  "updatedAt": "2026-09-25T08:01:00Z",
+  "systemPermission": {
+    "id": "permission-notice-01",
+    "detectedAt": "2026-09-25T08:01:00Z",
+    "dialogText": "“BotBus” would like to access files in your Documents folder.",
+    "screenshot": {
+      "id": "tZgTTkmbwO5T8u5vDlzw2g",
+      "kind": "image",
+      "title": "System permission dialog",
+      "createdAt": "2026-09-25T08:01:00Z",
+      "contentType": "image/png",
+      "size": 24576,
+      "expiresAt": "2026-10-02T08:01:00Z"
+    }
+  }
+}

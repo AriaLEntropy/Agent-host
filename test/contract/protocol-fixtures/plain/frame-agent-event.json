@@ -1,0 +1,7 @@
+{
+  "type": "event",
+  "event": {
+    "kind": "taskRemoved",
+    "taskId": "claude:d3a0850c-c094-4176-b47f-574449d728e3"
+  }
+}

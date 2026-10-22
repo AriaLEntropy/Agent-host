@@ -1,0 +1,12 @@
+{
+  "id": "7c2d3e4f-5061-4b72-8c83-a4b5c6d7e8f4",
+  "createdAt": "2026-09-28T08:00:00Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "startTask",
+  "startTask": {
+    "source": "claude",
+    "projectPath": "",
+    "prompt": "不在项目中也想开 worktree",
+    "worktree": true
+  }
+}

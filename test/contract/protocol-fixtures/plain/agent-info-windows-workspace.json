@@ -1,0 +1,25 @@
+{
+  "agentId": "Wn3kQ8vT5pL2xR7mBcD4aA",
+  "name": "DEMO-PC",
+  "platform": "windows",
+  "online": true,
+  "lastSeenAt": "2026-10-04T08:21:00Z",
+  "appVersion": "0.9.0",
+  "connectors": [
+    {
+      "kind": "codex",
+      "displayName": "Codex",
+      "available": true,
+      "enabled": true,
+      "status": "ok",
+      "taskCount": 1
+    }
+  ],
+  "projectsRoot": "C:\\Users\\demo\\Documents\\BotBusProjects",
+  "worktrees": true,
+  "capabilities": {
+    "remoteControl": false,
+    "previews": false
+  },
+  "workspace": true
+}

@@ -1,0 +1,10 @@
+{
+  "id": "5f2f3a1c-7f2e-4f3a-9a11-2b6d0c1e7a90",
+  "createdAt": "2026-09-20T15:40:00Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "fetchMessages",
+  "fetchMessages": {
+    "taskId": "codex:thr_01JB8M0Q4R",
+    "limit": 40
+  }
+}

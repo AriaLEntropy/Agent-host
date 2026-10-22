@@ -1,0 +1,13 @@
+{
+  "id": "codex:bad",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "source": "codex",
+  "title": "坏状态",
+  "projectPath": "/Users/me/Projects/x",
+  "projectName": "x",
+  "status": "sleeping",
+  "origin": "desktop",
+  "controllable": false,
+  "startedAt": "2026-09-17T08:00:00Z",
+  "updatedAt": "2026-09-17T08:00:00Z"
+}

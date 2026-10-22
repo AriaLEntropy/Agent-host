@@ -3,11 +3,11 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { Snapshot } from "../../../botbus-protocol/src/protocol.ts";
+import { Snapshot } from "../contract/protocol.js";
 import { flushCommandLog, setCommandLogPath, waitForCommands } from "../../src/bus/commands.js";
 import { isBusPath, routeBus, SNAPSHOT_LONG_POLL_MS } from "../../src/bus/router.js";
 import { openBusWebSocket } from "../../src/bus/socket.js";
-import { busStore, MAX_TASKS } from "../../src/bus/store.js";
+import { busStore, MAX_TASKS, type BusProject, type BusTask } from "../../src/bus/store.js";
 
 const agentId = "hV3nQ7pLxK2mR8sTfW4bZQ";
 
@@ -193,7 +193,7 @@ describe("bus routes", { concurrency: false }, () => {
       "npm test",
       "npm run build",
     ].join("\n");
-    const projects = Array.from({ length: 60 }, (_, index) => ({
+    const projects: BusProject[] = Array.from({ length: 60 }, (_, index) => ({
       agentId,
       path: `C:/Users/me/Projects/lesson-creator-${index}/apps/player`,
       name: `lesson-creator-${index}`,
@@ -202,7 +202,7 @@ describe("bus routes", { concurrency: false }, () => {
     }));
     const measure = (chars: number) => {
       const reply = sentence.repeat(Math.ceil(chars / sentence.length)).slice(0, chars);
-      const tasks = Array.from({ length: MAX_TASKS }, (_, index) => {
+      const tasks: BusTask[] = Array.from({ length: MAX_TASKS }, (_, index) => {
         const project = index % 60;
         const waiting = index % 5 === 0;
         const stamp = new Date(Date.UTC(2026, 9, 16, 0, 0, index)).toISOString().replace(".000Z", "Z");

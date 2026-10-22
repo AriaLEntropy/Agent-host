@@ -1,0 +1,11 @@
+{
+  "id": "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+  "createdAt": "2026-09-26T08:00:00Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "startTask",
+  "startTask": {
+    "source": "acp",
+    "projectPath": "/Users/me/Projects/lesson-creator",
+    "prompt": "把发布说明整理成三条要点"
+  }
+}

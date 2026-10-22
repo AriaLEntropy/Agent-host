@@ -1,0 +1,12 @@
+{
+  "id": "7c2d3e4f-5061-4b72-9c83-a4b5c6d7e8f1",
+  "createdAt": "2026-09-28T08:32:00Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "startTask",
+  "startTask": {
+    "source": "claude",
+    "projectPath": "/Users/demo/Projects/demo-app",
+    "prompt": "把依赖都升到最新并跑一遍测试",
+    "autoApprove": true
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "agentId": "Kq7ZbN2xW9vTpL4mCdR5gA",
+  "name": "Demo 的 Mac Studio",
+  "platform": "macos",
+  "online": true,
+  "lastSeenAt": "2026-10-03T08:21:00Z",
+  "appVersion": "1.1.0",
+  "connectors": [
+    {
+      "kind": "claude",
+      "displayName": "Claude Code",
+      "available": true,
+      "enabled": true,
+      "status": "ok",
+      "taskCount": 2,
+      "canDeleteTasks": true
+    }
+  ],
+  "projectsRoot": "/Users/me/Documents/BotBusProjects",
+  "worktrees": true,
+  "workspace": true,
+  "canRemoveProjects": true
+}

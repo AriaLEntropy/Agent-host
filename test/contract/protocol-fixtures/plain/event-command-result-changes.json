@@ -1,0 +1,10 @@
+{
+  "kind": "commandResult",
+  "commandResult": {
+    "commandId": "0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f",
+    "ok": true,
+    "taskId": "claude:4f1c9d2e-0b7a-4e55-9c1f-2a3b4c5d6e7f",
+    "finishedAt": "2026-09-25T08:05:01Z",
+    "artifactId": "Xk2mR8sTfW4bZQhV3nQ7pL"
+  }
+}

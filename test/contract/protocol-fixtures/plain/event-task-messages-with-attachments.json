@@ -1,0 +1,39 @@
+{
+  "kind": "taskMessages",
+  "taskMessages": {
+    "taskId": "codex:thread-1",
+    "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+    "messages": [
+      {
+        "id": "item-u1",
+        "role": "user",
+        "text": "看看这张截图",
+        "createdAt": "2026-09-25T08:00:00Z",
+        "attachments": [
+          { "artifactId": "AAAAAAAAAAAAAAAAAAAAAA", "contentType": "image/jpeg", "size": 123456, "width": 1170, "height": 2532 }
+        ]
+      },
+      {
+        "id": "item-u2",
+        "role": "user",
+        "text": "",
+        "createdAt": "2026-09-25T08:00:30Z",
+        "attachments": [
+          { "artifactId": "EEEEEEEEEEEEEEEEEEEEEE", "contentType": "image/png", "size": 54321 }
+        ]
+      },
+      {
+        "id": "item-a1",
+        "role": "agent",
+        "text": "已保存到 `out/demo.mp4`",
+        "createdAt": "2026-09-25T08:01:00Z",
+        "files": [
+          { "path": "/Users/me/proj/out/demo.mp4", "name": "demo.mp4", "contentType": "video/mp4", "size": 4200000 },
+          { "path": "/Users/me/proj/out/shot.png", "name": "shot.png", "contentType": "image/png", "size": 80000, "artifactId": "BBBBBBBBBBBBBBBBBBBBBB" }
+        ]
+      }
+    ],
+    "hasMore": false,
+    "fetchedAt": "2026-09-25T08:02:00Z"
+  }
+}

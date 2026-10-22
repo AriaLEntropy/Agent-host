@@ -1,0 +1,13 @@
+{
+  "kind": "commandResult",
+  "commandResult": {
+    "commandId": "9f8e7d6c-5b4a-4392-8170-6f5e4d3c2b1a",
+    "ok": false,
+    "error": "Operation not permitted",
+    "finishedAt": "2026-09-25T08:01:00Z",
+    "systemPermission": {
+      "id": "permission-notice-02",
+      "detectedAt": "2026-09-25T08:01:00Z"
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "id": "claude:c5574180-9b81-4f01-8491-509836a178a3",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "source": "claude",
+  "title": "给落地页加一个价格区块",
+  "projectPath": "/Users/me/Projects/landing-page",
+  "projectName": "landing-page",
+  "status": "completed",
+  "lastMessage": "价格区块已加好，预览、截图和文案都发到手机上了。",
+  "origin": "watch",
+  "controllable": true,
+  "startedAt": "2026-09-24T09:10:00Z",
+  "updatedAt": "2026-09-24T09:24:10Z",
+  "artifacts": [
+    {
+      "id": "fcyo5arb6h4tj6stp52aspdb4i",
+      "kind": "preview",
+      "title": "landing-page 开发服务器",
+      "createdAt": "2026-09-24T09:24:00Z",
+      "port": 5173,
+      "expiresAt": "2026-09-24T11:24:00Z"
+    },
+    {
+      "id": "TgJ31imjSW7vhau7ATAuTg",
+      "kind": "image",
+      "title": "价格区块截图",
+      "createdAt": "2026-09-24T09:23:10Z",
+      "contentType": "image/png",
+      "size": 482133,
+      "expiresAt": "2026-10-01T09:23:10Z"
+    },
+    {
+      "id": "syHPyJe8Az_19KvdRbfIZA",
+      "kind": "file",
+      "title": "pricing-copy.md",
+      "createdAt": "2026-09-24T09:20:05Z",
+      "contentType": "text/markdown",
+      "size": 2048
+    },
+    {
+      "id": "l6QELPk4pC6dJ9lUKprHQg",
+      "kind": "link",
+      "title": "参考：定价页设计范例",
+      "createdAt": "2026-09-24T09:15:30Z",
+      "url": "https://design-notes.example.com/pricing-pages"
+    }
+  ]
+}

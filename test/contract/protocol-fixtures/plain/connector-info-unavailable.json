@@ -1,0 +1,8 @@
+{
+  "kind": "claude",
+  "displayName": "Claude Code",
+  "available": false,
+  "enabled": false,
+  "status": "degraded",
+  "taskCount": 0
+}

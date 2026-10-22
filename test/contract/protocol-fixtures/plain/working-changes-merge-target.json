@@ -1,0 +1,44 @@
+{
+  "directory": "/Users/rico/work/landing-page/.claude/worktrees/a1b2c3",
+  "branch": "botbus/a1b2c3",
+  "generatedAt": "2026-09-25T08:05:01Z",
+  "totalFiles": 5,
+  "files": [
+    {
+      "path": "docs/old-notes.md",
+      "status": "deleted",
+      "added": 0,
+      "removed": 2,
+      "patch": "@@ -1,2 +0,0 @@\n-# Notes\n-draft\n"
+    },
+    {
+      "path": "public/hero.png",
+      "status": "modified",
+      "binary": true
+    },
+    {
+      "path": "src/Plan.tsx",
+      "status": "untracked",
+      "added": 1,
+      "removed": 0,
+      "patch": "@@ -0,0 +1,1 @@\n+export const Plan = () => null;\n"
+    },
+    {
+      "path": "src/Pricing.tsx",
+      "status": "modified",
+      "added": 2,
+      "removed": 1,
+      "patch": "@@ -10,3 +10,4 @@ export function Pricing() {\n   return (\n-    <div className=\"row\">\n+    <div className=\"grid\">\n+      <Plan tier=\"pro\" />\n"
+    },
+    {
+      "path": "src/pricing.css",
+      "oldPath": "src/styles.css",
+      "status": "renamed",
+      "added": 1,
+      "removed": 0,
+      "patch": "@@ -1,1 +1,2 @@\n .pricing {}\n+.grid { display: grid; }\n",
+      "truncated": true
+    }
+  ],
+  "mergeTarget": "main"
+}

@@ -1,0 +1,14 @@
+{
+  "kind": "commandResult",
+  "commandResult": {
+    "commandId": "4b3a2c1d-0e9f-4a8b-9c7d-6e5f4a3b2c1d",
+    "ok": false,
+    "error": "Claude AI usage limit reached|1791043200",
+    "taskId": "claude:diagnosis-example",
+    "finishedAt": "2026-10-03T08:01:00Z",
+    "diagnosis": {
+      "kind": "usageLimit",
+      "resetsAt": "2026-10-03T16:00:00Z"
+    }
+  }
+}

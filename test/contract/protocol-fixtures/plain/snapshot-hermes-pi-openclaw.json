@@ -1,0 +1,107 @@
+{
+  "agents": [
+    {
+      "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+      "name": "Demo 的 MacBook Pro",
+      "platform": "macos",
+      "online": true,
+      "lastSeenAt": "2026-09-24T08:21:00Z",
+      "appVersion": "0.5.0",
+      "connectors": [
+        {
+          "kind": "codex",
+          "displayName": "Codex",
+          "available": true,
+          "enabled": true,
+          "status": "ok",
+          "taskCount": 1
+        },
+        {
+          "kind": "hermes",
+          "displayName": "Hermes",
+          "available": true,
+          "enabled": true,
+          "status": "ok",
+          "taskCount": 1
+        },
+        {
+          "kind": "pi",
+          "displayName": "Pi",
+          "available": true,
+          "enabled": true,
+          "status": "ok",
+          "taskCount": 1
+        },
+        {
+          "kind": "openclaw",
+          "displayName": "OpenClaw",
+          "available": true,
+          "enabled": true,
+          "status": "degraded",
+          "taskCount": 1,
+          "lastError": "连不上 OpenClaw Gateway（127.0.0.1:18789）"
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "pi:019a2b3c-4d5e-7f60-8a9b-0c1d2e3f4a5b",
+      "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+      "source": "pi",
+      "title": "把设置页拆成两个 tab",
+      "projectPath": "/Users/demo/Projects/demo-app",
+      "projectName": "demo-app",
+      "status": "running",
+      "origin": "watch",
+      "controllable": true,
+      "startedAt": "2026-09-24T08:10:00Z",
+      "updatedAt": "2026-09-24T08:20:00Z"
+    },
+    {
+      "id": "hermes:20260924_080102_a1b2c3",
+      "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+      "source": "hermes",
+      "title": "整理本周的依赖升级",
+      "projectPath": "/Users/demo/Projects/demo-app",
+      "projectName": "demo-app",
+      "status": "completed",
+      "lastMessage": "依赖已经升级完，测试全部通过。",
+      "origin": "desktop",
+      "controllable": true,
+      "startedAt": "2026-09-24T08:01:02Z",
+      "updatedAt": "2026-09-24T08:15:00Z"
+    },
+    {
+      "id": "openclaw:agent:main:main",
+      "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+      "source": "openclaw",
+      "title": "整理明天的日程",
+      "projectPath": "/Users/demo/.openclaw/workspace",
+      "projectName": "workspace",
+      "status": "waitingApproval",
+      "pendingRequest": {
+        "id": "appr-7f3c",
+        "kind": "command",
+        "summary": "osascript -e 'tell application \"Calendar\" to get events'"
+      },
+      "origin": "desktop",
+      "controllable": true,
+      "startedAt": "2026-09-24T07:50:00Z",
+      "updatedAt": "2026-09-24T08:12:00Z"
+    }
+  ],
+  "projects": [
+    {
+      "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+      "path": "/Users/demo/Projects/demo-app",
+      "name": "demo-app",
+      "lastUsedAt": "2026-09-24T08:20:00Z",
+      "pinned": false
+    }
+  ],
+  "recentResults": [],
+  "recentMessages": [],
+  "seq": 42,
+  "generatedAt": "2026-09-24T08:21:00Z"
+}

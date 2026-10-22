@@ -1,0 +1,11 @@
+{
+  "id": "7c2d3e4f-5061-4b72-9c83-a4b5c6d7e8f0",
+  "createdAt": "2026-09-28T08:31:00Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "followUp",
+  "followUp": {
+    "taskId": "claude:5b7e1c2a-3d4f-4a5b-8c6d-7e8f9a0b1c2d",
+    "prompt": "改完之后每一步都先问我",
+    "autoApprove": false
+  }
+}

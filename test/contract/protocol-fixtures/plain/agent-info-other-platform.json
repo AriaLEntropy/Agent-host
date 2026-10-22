@@ -1,0 +1,15 @@
+{
+  "agentId": "Fb6sK1yH8uM3nR5tW2qE9g",
+  "name": "demo-bsd",
+  "platform": "freebsd",
+  "online": false,
+  "lastSeenAt": "2026-09-29T07:00:00Z",
+  "appVersion": "1.4.0",
+  "connectors": [],
+  "capabilities": {
+    "remoteControl": false,
+    "previews": false,
+    "fetchFile": true,
+    "fetchChanges": false
+  }
+}

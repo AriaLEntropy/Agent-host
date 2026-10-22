@@ -1,0 +1,23 @@
+{
+  "agentId": "Lx4pQ9wN2rT7vB3kZmD8cA",
+  "name": "demo-build-box",
+  "platform": "linux",
+  "online": true,
+  "lastSeenAt": "2026-09-29T08:21:00Z",
+  "appVersion": "0.9.0",
+  "connectors": [
+    {
+      "kind": "claude",
+      "displayName": "Claude Code",
+      "available": true,
+      "enabled": true,
+      "status": "ok",
+      "taskCount": 1
+    }
+  ],
+  "projectsRoot": "/home/demo/BotBusProjects",
+  "capabilities": {
+    "remoteControl": false,
+    "previews": false
+  }
+}

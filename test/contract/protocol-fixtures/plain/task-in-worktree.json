@@ -1,0 +1,14 @@
+{
+  "id": "claude:5c7e9a13-2d4f-4b6a-8e1c-9f0a1b2c3d4e",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "source": "claude",
+  "title": "给设置页加上深色模式",
+  "projectPath": "/Users/me/Projects/notes-app",
+  "projectName": "notes-app",
+  "status": "running",
+  "origin": "desktop",
+  "controllable": true,
+  "startedAt": "2026-09-17T10:00:00Z",
+  "updatedAt": "2026-09-17T10:06:00Z",
+  "worktreePath": "/Users/me/Projects/notes-app/.claude/worktrees/settings-dark-mode-4f2a9c"
+}

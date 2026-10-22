@@ -1,0 +1,10 @@
+{
+  "id": "9d3e4f50-6172-4c83-9d94-b5c6d7e8f902",
+  "createdAt": "2026-10-04T09:00:00Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "restartConnector",
+  "restartConnector": {
+    "connector": "acp",
+    "connectorId": "gemini"
+  }
+}

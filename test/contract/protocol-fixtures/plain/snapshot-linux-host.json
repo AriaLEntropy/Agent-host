@@ -1,0 +1,81 @@
+{
+  "agents": [
+    {
+      "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+      "name": "Demo 的 MacBook Pro",
+      "platform": "macos",
+      "online": true,
+      "lastSeenAt": "2026-09-29T08:30:00Z",
+      "appVersion": "1.2.0",
+      "connectors": [
+        {
+          "kind": "codex",
+          "displayName": "Codex",
+          "available": true,
+          "enabled": true,
+          "status": "ok",
+          "taskCount": 0
+        }
+      ]
+    },
+    {
+      "agentId": "Lx4pQ9wN2rT7vB3kZmD8cA",
+      "name": "demo-build-box",
+      "platform": "linux",
+      "online": true,
+      "lastSeenAt": "2026-09-29T08:30:00Z",
+      "appVersion": "0.9.0",
+      "connectors": [
+        {
+          "kind": "claude",
+          "displayName": "Claude Code",
+          "available": true,
+          "enabled": true,
+          "status": "ok",
+          "taskCount": 1
+        }
+      ],
+      "capabilities": {
+        "remoteControl": false,
+        "previews": false
+      }
+    },
+    {
+      "agentId": "Wn5cJ2dP7xL9qS4vG1hT6b",
+      "name": "DEMO-DESKTOP",
+      "platform": "windows",
+      "online": false,
+      "lastSeenAt": "2026-09-28T22:10:00Z",
+      "appVersion": "0.9.0",
+      "connectors": []
+    }
+  ],
+  "tasks": [
+    {
+      "id": "claude:0b7d3e9f-1a2c-4d5e-8f6a-7b8c9d0e1f2a",
+      "agentId": "Lx4pQ9wN2rT7vB3kZmD8cA",
+      "source": "claude",
+      "title": "修好夜间构建",
+      "projectPath": "/home/demo/src/demo-service",
+      "projectName": "demo-service",
+      "status": "running",
+      "origin": "watch",
+      "controllable": true,
+      "startedAt": "2026-09-29T08:10:00Z",
+      "updatedAt": "2026-09-29T08:29:00Z"
+    }
+  ],
+  "projects": [
+    {
+      "agentId": "Lx4pQ9wN2rT7vB3kZmD8cA",
+      "path": "/home/demo/src/demo-service",
+      "name": "demo-service",
+      "lastUsedAt": "2026-09-29T08:29:00Z",
+      "pinned": false
+    }
+  ],
+  "recentResults": [],
+  "recentMessages": [],
+  "seq": 12,
+  "generatedAt": "2026-09-29T08:30:00Z"
+}

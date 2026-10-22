@@ -1,0 +1,9 @@
+{
+  "kind": "notify",
+  "notify": {
+    "taskId": "claude:7c1e2f3a-4b5c-4d6e-8f90-a1b2c3d4e5f6",
+    "category": "TASK_INPUT",
+    "title": "Claude 在等你回答",
+    "body": "README 里要保留 Homebrew 安装方式吗？"
+  }
+}

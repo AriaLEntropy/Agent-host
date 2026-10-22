@@ -1,0 +1,77 @@
+{
+  "agents": [
+    {
+      "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+      "name": "Demo 的 MacBook Pro",
+      "platform": "macos",
+      "online": true,
+      "lastSeenAt": "2026-09-27T06:30:00Z",
+      "appVersion": "1.1.0",
+      "connectors": [
+        {
+          "kind": "claude",
+          "displayName": "Claude Code",
+          "available": true,
+          "enabled": true,
+          "status": "ok",
+          "taskCount": 0
+        },
+        {
+          "kind": "dsh",
+          "displayName": "DeepSeek Harness",
+          "available": true,
+          "enabled": true,
+          "status": "ok",
+          "taskCount": 2
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "dsh:7c1e9a4b-2d3f-4e5a-8b6c-0d1e2f3a4b5c",
+      "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+      "source": "dsh",
+      "title": "给登录页补单元测试",
+      "projectPath": "/Users/demo/Projects/demo-app",
+      "projectName": "demo-app",
+      "status": "waitingApproval",
+      "pendingRequest": {
+        "id": "dsh-evt-41",
+        "kind": "command",
+        "summary": "npm test -- login"
+      },
+      "origin": "desktop",
+      "controllable": true,
+      "startedAt": "2026-09-27T06:10:00Z",
+      "updatedAt": "2026-09-27T06:28:00Z"
+    },
+    {
+      "id": "dsh:3f8a2b1c-9e0d-4c7b-a6f5-e4d3c2b1a0f9",
+      "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+      "source": "dsh",
+      "title": "解释一下这个仓库的目录结构",
+      "projectPath": "/Users/demo/Projects/demo-app",
+      "projectName": "demo-app",
+      "status": "completed",
+      "lastMessage": "顶层分成 app、core 和 scripts 三块。",
+      "origin": "watch",
+      "controllable": true,
+      "startedAt": "2026-09-27T05:40:00Z",
+      "updatedAt": "2026-09-27T05:42:00Z"
+    }
+  ],
+  "projects": [
+    {
+      "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+      "path": "/Users/demo/Projects/demo-app",
+      "name": "demo-app",
+      "lastUsedAt": "2026-09-27T06:28:00Z",
+      "pinned": false
+    }
+  ],
+  "recentResults": [],
+  "recentMessages": [],
+  "seq": 7,
+  "generatedAt": "2026-09-27T06:30:00Z"
+}

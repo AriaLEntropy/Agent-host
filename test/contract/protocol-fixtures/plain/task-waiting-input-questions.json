@@ -1,0 +1,39 @@
+{
+  "id": "claude:3f9a1c2e-5d6b-4e7f-8a90-b1c2d3e4f5a6",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "source": "claude",
+  "title": "发布前的收尾",
+  "projectPath": "/Users/me/Projects/botbus",
+  "projectName": "botbus",
+  "status": "waitingInput",
+  "pendingRequest": {
+    "id": "toolu_01ExampleAskQuestion",
+    "kind": "input",
+    "summary": "要处理什么",
+    "question": "要处理什么？\n1. 发新版 — 跑发版 workflow\n2. 先本机验证\n\n测哪些？（可多选）\n1. 手机\n2. 手表",
+    "questions": [
+      {
+        "id": "0",
+        "question": "要处理什么？",
+        "header": "要处理什么",
+        "options": [
+          { "label": "发新版", "description": "跑发版 workflow" },
+          { "label": "先本机验证" }
+        ]
+      },
+      {
+        "id": "1",
+        "question": "测哪些？",
+        "multiSelect": true,
+        "options": [
+          { "label": "手机" },
+          { "label": "手表" }
+        ]
+      }
+    ]
+  },
+  "origin": "desktop",
+  "controllable": true,
+  "startedAt": "2026-09-26T07:40:00Z",
+  "updatedAt": "2026-09-26T07:45:00Z"
+}

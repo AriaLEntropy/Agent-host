@@ -1,0 +1,11 @@
+{
+  "id": "3d5a9a1e-3f0c-4a7f-9a0e-1b2c3d4e5f60",
+  "createdAt": "2026-09-17T08:05:00Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "startTask",
+  "startTask": {
+    "source": "codex",
+    "projectPath": "/Users/me/Projects/lesson-creator",
+    "prompt": "把课程页面改成铺满屏幕，并在结束后自动进入下一步"
+  }
+}
