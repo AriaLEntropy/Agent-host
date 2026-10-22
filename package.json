@@ -23,6 +23,15 @@
     "dev": "tsx src/cli.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/cli.js",
+    "measure:snapshot": "tsx scripts/snapshot-size.ts",
+    "smoke:bus": "tsx scripts/bus-smoke.ts",
+    "smoke:commands": "tsx scripts/command-idempotency.ts",
+    "smoke:restart": "tsx scripts/command-host-restart.ts",
+    "smoke:pair-refresh": "tsx scripts/pair-refresh-smoke.ts",
+    "smoke:ws": "tsx scripts/ws-subscribe.ts",
+    "probe:capacity": "tsx scripts/capacity-probe.ts",
+    "probe:latency": "tsx scripts/latency-probe.ts",
+    "smoke:admin": "tsx scripts/admin-smoke.ts",
     "test": "tsx --import ./test/resolve-zod.mjs --test --test-concurrency=1 test/tunnel/*.test.ts test/bus/*.test.ts test/connectors/*.test.ts"
   },
   "dependencies": {

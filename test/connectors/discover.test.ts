@@ -55,6 +55,18 @@ test("an npm registry entry must live inside its package", async () => {
   );
 });
 
+test("dsh is discovered from an explicit executable", async () => {
+  const found = await discoverAgents({
+    manifestDir: join(tmpdir(), "missing-agents-dir"),
+    entries: [],
+    locate: missing,
+    dshExecutable: "C:/tools/dsh.cmd",
+  });
+  const dsh = found.agents.find((agent) => agent.kind === "dsh");
+  assert.equal(dsh?.available, true);
+  assert.equal(dsh?.executable, "C:/tools/dsh.cmd");
+});
+
 test("only ten ACP agents are kept, in name order", async () => {
   const entries: RegistryEntry[] = Array.from({ length: 11 }, (_, index) => ({
     id: `agent-${index}`,
