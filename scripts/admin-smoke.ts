@@ -1,13 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
+import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createChecks, createHarness, sleep } from "./lib/sealed-harness.js";
+import { join } from "node:path";
+import { createChecks, createHarness, RELAY_DIR, sleep } from "./lib/sealed-harness.js";
 
-const RELAY_DIR = resolve(fileURLToPath(new URL("../../dsh-scan-remote/relay", import.meta.url)));
 const ADMIN_USER = "admin";
 const ADMIN_PASSWORD = "test-admin-password";
 
@@ -37,6 +36,12 @@ async function main() {
   const dir = await mkdtemp(join(tmpdir(), "agent-host-admin-"));
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
+  const dshPort = await freePort();
+  const dshStub = createHttpServer((_request, response) => {
+    response.writeHead(200, { "content-type": "text/plain" });
+    response.end("stub dsh web");
+  });
+  await new Promise<void>((resolve) => dshStub.listen(dshPort, "127.0.0.1", resolve));
   const logs: string[] = [];
   const relay = spawn(process.execPath, ["dist/server.js"], {
     cwd: RELAY_DIR,
@@ -59,7 +64,7 @@ async function main() {
   let harness: Awaited<ReturnType<typeof createHarness>> | undefined;
   try {
     await waitForHealth(base, relay, logs);
-    harness = await createHarness({ relayUrl: base, hostName: "Admin Smoke Host" });
+    harness = await createHarness({ relayUrl: base, hostName: "Admin Smoke Host", dshPort });
     await sleep(500);
 
     const login = await fetch(`${base}/admin/api/login`, {
@@ -90,6 +95,7 @@ async function main() {
   } finally {
     await harness?.close();
     relay.kill("SIGTERM");
+    await new Promise<void>((resolve) => dshStub.close(() => resolve()));
     await sleep(200);
     if (relay.exitCode === null) relay.kill("SIGKILL");
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);

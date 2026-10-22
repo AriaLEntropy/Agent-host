@@ -22,7 +22,10 @@ import { RelayClient } from "../../src/tunnel/relay-client.js";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const HOST_DIR = resolve(SCRIPT_DIR, "../..");
-const RELAY_DIR = resolve(SCRIPT_DIR, "../../../dsh-scan-remote/relay");
+export const RELAY_DIR =
+  process.env.AGENT_HOST_RELAY_DIR?.trim() ||
+  resolve(SCRIPT_DIR, "../../../dsh-scan-remote/relay");
+export const RELAY_UPSTREAM = "https://github.com/yukiykchen/dsh-scan-remote";
 
 export type HttpResponse = {
   status: number;
@@ -518,7 +521,9 @@ async function waitForHostOnline(base: string, clientToken: string) {
 
 export async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
   const hostName = options.hostName ?? "Bus Smoke Host";
-  const relayArg = options.relayUrl?.replace(/\/$/, "");
+  const relayArg =
+    (options.relayUrl ?? process.env.AGENT_HOST_RELAY_URL)?.trim().replace(/\/$/, "") ||
+    undefined;
   const local = !relayArg;
   let base = relayArg ?? "";
   let child: ChildProcess | undefined;
@@ -573,7 +578,15 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       const entry = join(RELAY_DIR, "dist", "server.js");
       if (!existsSync(entry))
         throw new Error(
-          `Relay build not found at ${entry}. Run: cd ${RELAY_DIR} && npm run build`,
+          [
+            `Relay build not found at ${entry}.`,
+            "This smoke test needs the Relay service (a separate repo, not part of Agent-host).",
+            "Pick one:",
+            `  1. clone ${RELAY_UPSTREAM} next to this repo, then: cd "${RELAY_DIR}" && npm install && npm run build`,
+            `  2. point AGENT_HOST_RELAY_DIR at an existing checkout's relay/ folder (current: ${RELAY_DIR})`,
+            "  3. set AGENT_HOST_RELAY_URL to an already-running Relay (no local build needed)",
+            "Unit tests (npm test) and the build do not need any of this.",
+          ].join("\n"),
         );
       const port = await freePort();
       base = `http://127.0.0.1:${port}`;
