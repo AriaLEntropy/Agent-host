@@ -192,7 +192,9 @@ export class TaskStore {
   }
 
   rememberProject(project: BusProject) {
+    const before = JSON.stringify(this.projects);
     this.projects = [project, ...this.projects.filter((item) => item.path !== project.path)];
+    if (JSON.stringify(this.projects) !== before) this.publish({ kind: "snapshot" });
   }
 
   upsertTask(task: BusTask) {

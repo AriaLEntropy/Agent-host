@@ -37,6 +37,10 @@ rl.on("line", (line) => {
   if (message.method === "session/prompt") {
     promptId = message.id;
     const text = (message.params.prompt ?? []).map((block) => block.text ?? "").join("");
+    if (text.includes("CRASH")) {
+      process.stderr.write("fake crash\n");
+      process.exit(1);
+    }
     if (text.includes("NEED_PERMISSION")) {
       send({
         jsonrpc: "2.0",
@@ -58,12 +62,13 @@ rl.on("line", (line) => {
       });
       return;
     }
+    const reply = text.startsWith("ECHO:") ? text.slice(5) : "已完成";
     send({
       jsonrpc: "2.0",
       method: "session/update",
       params: {
         sessionId: message.params.sessionId,
-        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "已完成" } },
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } },
       },
     });
     send({ jsonrpc: "2.0", id: message.id, result: { stopReason: "end_turn" } });

@@ -186,6 +186,138 @@ describe("acp runtime", { concurrency: false }, () => {
     resetRuntime();
   });
 
+  test("followUp and interrupt work on the same fake ACP session", async () => {
+    reset();
+    useAgents([
+      {
+        id: "my-agent",
+        kind: "acp",
+        name: "My Agent",
+        executable: fake,
+        args: agentArgs(),
+        env: {},
+        origin: "manifest",
+        available: true,
+        enabled: true,
+      },
+    ]);
+    await post({
+      id: "cmd-follow-start",
+      createdAt: "2026-10-16T00:00:00Z",
+      agentId,
+      kind: "startTask",
+      startTask: {
+        source: "acp",
+        connectorId: "my-agent",
+        projectPath: "C:/work/demo",
+        prompt: "hello",
+      },
+    });
+    await until(() => busStore.taskById("acp:my-agent:sess-1")?.status === "completed");
+    const follow = await post({
+      id: "cmd-follow",
+      createdAt: "2026-10-16T00:00:01Z",
+      agentId,
+      kind: "followUp",
+      followUp: { taskId: "acp:my-agent:sess-1", prompt: "ECHO:follow-up" },
+    });
+    assert.equal(follow.status, 202);
+    await until(() => busStore.taskById("acp:my-agent:sess-1")?.lastMessage === "follow-up");
+
+    const started = await post({
+      id: "cmd-interrupt-start",
+      createdAt: "2026-10-16T00:00:02Z",
+      agentId,
+      kind: "startTask",
+      startTask: {
+        source: "acp",
+        connectorId: "my-agent",
+        projectPath: "C:/work/demo",
+        prompt: "NEED_PERMISSION",
+      },
+    });
+    assert.equal(started.status, 202);
+    await until(() => busStore.taskById("acp:my-agent:sess-2")?.status === "waitingApproval");
+    const interrupted = await post({
+      id: "cmd-interrupt",
+      createdAt: "2026-10-16T00:00:03Z",
+      agentId,
+      kind: "interrupt",
+      interrupt: { taskId: "acp:my-agent:sess-2" },
+    });
+    assert.equal(interrupted.status, 202);
+    await until(() => busStore.taskById("acp:my-agent:sess-2")?.status === "interrupted");
+    resetRuntime();
+  });
+
+  test("an agent crash marks the task failed with the stderr tail", async () => {
+    reset();
+    useAgents([
+      {
+        id: "my-agent",
+        kind: "acp",
+        name: "My Agent",
+        executable: fake,
+        args: agentArgs(),
+        env: {},
+        origin: "manifest",
+        available: true,
+        enabled: true,
+      },
+    ]);
+    await post({
+      id: "cmd-crash",
+      createdAt: "2026-10-16T00:00:00Z",
+      agentId,
+      kind: "startTask",
+      startTask: {
+        source: "acp",
+        connectorId: "my-agent",
+        projectPath: "C:/work/demo",
+        prompt: "CRASH",
+      },
+    });
+    await until(() => busStore.taskById("acp:my-agent:sess-1")?.status === "failed");
+    const task = busStore.taskById("acp:my-agent:sess-1");
+    assert.equal(task?.status, "failed");
+    assert.match(task?.lastMessage ?? "", /fake crash/);
+    resetRuntime();
+  });
+
+  test("a dsh task uses dsh:<sessionId> and no connectorId", async () => {
+    reset();
+    useAgents([
+      {
+        id: "dsh",
+        kind: "dsh",
+        name: "DeepSeek Harness",
+        executable: fake,
+        args: agentArgs(),
+        env: {},
+        origin: "dsh",
+        available: true,
+        enabled: true,
+      },
+    ]);
+    const started = await post({
+      id: "cmd-dsh",
+      createdAt: "2026-10-16T00:00:00Z",
+      agentId,
+      kind: "startTask",
+      startTask: {
+        source: "dsh",
+        projectPath: "C:/work/demo",
+        prompt: "hello",
+      },
+    });
+    assert.equal(started.status, 202);
+    await until(() => busStore.taskById("dsh:sess-1")?.status === "completed");
+    const task = busStore.taskById("dsh:sess-1");
+    assert.equal(task?.source, "dsh");
+    assert.equal(task?.connectorId, undefined);
+    resetRuntime();
+  });
+
   test("an idle process is closed", async () => {
     reset();
     setIdleMs(400);

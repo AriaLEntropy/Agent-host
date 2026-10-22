@@ -41,6 +41,7 @@ export class AcpProcess {
     { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }
   >();
   private idleTimer: NodeJS.Timeout | undefined;
+  private stderrTail = "";
   readonly capabilities = { loadSession: false, resume: false, image: false };
   alive = false;
 
@@ -65,14 +66,19 @@ export class AcpProcess {
     });
     this.child = child;
     this.alive = true;
+    child.stdin.on("error", () => undefined);
     this.armIdle();
     createInterface({ input: child.stdout }).on("line", (line) => {
       this.armIdle();
       this.onLine(line);
     });
+    child.stderr.on("data", (chunk) => {
+      this.stderrTail = (this.stderrTail + String(chunk)).slice(-2000);
+    });
     child.on("exit", () => {
       this.alive = false;
-      this.failAll(new AcpRejected("agent exited"));
+      const detail = this.stderrTail.trim();
+      this.failAll(new AcpRejected(detail ? `agent exited: ${detail}` : "agent exited"));
       this.onExit();
     });
     const result = (await this.call(
@@ -127,7 +133,12 @@ export class AcpProcess {
 
   private send(message: unknown) {
     this.armIdle();
-    this.child?.stdin.write(`${JSON.stringify(message)}\n`);
+    if (!this.child?.stdin.writable) return;
+    try {
+      this.child.stdin.write(`${JSON.stringify(message)}\n`);
+    } catch {
+      // The child may have exited between the writable check and the write.
+    }
   }
 
   private armIdle() {

@@ -411,6 +411,8 @@ export class RelayClient {
     let count = 0;
     for (const entry of this.localSockets.values())
       if (entry.sessionId === sessionId) count += 1;
+    for (const key of this.busCloses.keys())
+      if (key.startsWith(`${sessionId}:`)) count += 1;
     return count;
   }
 
