@@ -50,7 +50,7 @@ npm start -- up
 
 ## 本机 Relay（手机和电脑同一 WiFi）
 
-当前版本的配对接口以本仓库的 `dsh-scan-remote/relay` 为准。公共 `https://relay.dshmobile.online` 是另一个 fork/部署，配对接口与本地不一致（实测 `/pair/confirm` 返回 401），联调时请使用本机 Relay 或与你代码同版本的 Relay。
+本地 Relay 是唯一支持的部署方式（D04/D18）。程序不再内置公网 Relay 默认值：未配置 `AGENT_HOST_RELAY` / `PUBLIC_RELAY_URL` 时，`pair` / `up` 会直接退出并提示配置方法；Relay 不可达时也会在配对前报错。
 
 同一 WiFi 自测时：
 
@@ -78,8 +78,8 @@ npm start -- up
 
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
-| `AGENT_HOST_RELAY` | `https://relay.dshmobile.online` | 电脑连 Relay 的地址 |
-| `PUBLIC_RELAY_URL` | 同 `AGENT_HOST_RELAY` | 二维码里给手机的地址 |
+| `AGENT_HOST_RELAY` | 无（必填） | 电脑连 Relay 的地址，例如 `http://127.0.0.1:8787` |
+| `PUBLIC_RELAY_URL` | 无（必填） | 二维码里给手机的地址，必须是手机可达的局域网地址 |
 | `AGENT_HOST_CONFIG` | `%APPDATA%\agent-host\config.json` | 配置和凭据文件 |
 | `DSH_PORT` | `3080` | 本机 DSH web 端口 |
 | `DSH_DEVICE_NAME` | `<用户名>'s Computer` | 配对时显示的电脑名 |
@@ -91,7 +91,8 @@ npm start -- up
 | 现象 | 检查 |
 |---|---|
 | 二维码过期 | 当前会自动生成新二维码；如果终端没有刷新，再重新运行 `npm start -- up` |
-| 配对时报 `Pairing failed (401)` | 公共 Relay 与本地 Relay 的配对接口不一致；改用本仓库的 `dsh-scan-remote/relay` 或同版本部署 |
+| 启动时报“缺少 Relay 配置” | 设置 `AGENT_HOST_RELAY` 和 `PUBLIC_RELAY_URL`；本地 Relay 先启动并通过 `/health` |
+| `Pairing failed (401)` | Relay 版本与 Agent-host 不一致；使用本仓库的 `dsh-scan-remote/relay` |
 | 手机连不上 | 同一网络、防火墙、Relay 是否 `HOST=0.0.0.0`、`PUBLIC_RELAY_URL` 是否手机可达 |
 | 终端 `Paired as` 但手机没反应 | App 版本是否支持 Agent-host（会请求 `/bus/describe`） |
 | DSH 页面离线 | 先启动本机 DSH；`/bus` 接口仍然可用。此时后台/手机会显示「DSH 未连接」，5 秒探测、连续 3 次失败后才翻转 |
@@ -113,4 +114,4 @@ npx tsx src/cli.ts up
 
 1. 默认找同级目录 `..\dsh-scan-remote\relay\dist\server.js`，找不到会直接报错并给出三条出路；
 2. `AGENT_HOST_RELAY_DIR` 指向任意一份 relay 源码 checkout（必须有 `dist/server.js`）；
-3. `AGENT_HOST_RELAY_URL` 指向一个已经在跑的 Relay（本机或公网），完全不碰本地源码。
+3. `AGENT_HOST_RELAY_URL` 指向一个已经在跑的本地 Relay，完全不碰本地源码。

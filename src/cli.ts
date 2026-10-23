@@ -3,7 +3,13 @@ import { Command } from "commander";
 import { join } from "node:path";
 import { loadCommandLog, setCommandLogPath } from "./bus/commands.js";
 import { refreshAgents } from "./connectors/runtime.js";
-import { hostDataDir, loadConfig, saveConfig } from "./config.js";
+import {
+  checkRelayHealth,
+  hostDataDir,
+  loadConfig,
+  requireRelayConfig,
+  saveConfig,
+} from "./config.js";
 import { pair } from "./tunnel/pairing.js";
 import { RelayClient } from "./tunnel/relay-client.js";
 import { PLUGIN_VERSION } from "./tunnel/version.js";
@@ -24,7 +30,8 @@ program
   .command("pair")
   .description("Print a pairing QR and wait for the phone")
   .action(async () => {
-    const config = await prepare();
+    const config = requireRelayConfig(await prepare(), "pair");
+    await checkRelayHealth(config);
     await pair(config);
   });
 
@@ -32,7 +39,8 @@ program
   .command("up")
   .description("Run in the foreground and connect to Relay")
   .action(async () => {
-    let config = await prepare();
+    let config = requireRelayConfig(await prepare(), "up");
+    await checkRelayHealth(config);
     if (!config.hostToken) config = await pair(config);
     const client = new RelayClient(config, {
       onAuthRejected: (detail) => {
@@ -55,7 +63,7 @@ program
   .command("unpair")
   .description("Revoke this computer and delete the local device credential")
   .action(async () => {
-    const config = await prepare();
+    const config = requireRelayConfig(await prepare(), "unpair");
     if (config.hostId && config.hostToken) {
       const response = await fetch(
         `${config.relay}/host-management/${encodeURIComponent(config.hostId)}/unbind`,
