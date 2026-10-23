@@ -34,6 +34,7 @@
     "smoke:admin": "tsx scripts/admin-smoke.ts",
     "smoke:m0-e2e": "tsx scripts/m0-e2e.ts",
     "smoke:m1-pairing": "tsx scripts/m1-pairing.ts",
+    "smoke:m1-tunnel": "tsx scripts/m1-tunnel.ts",
     "list:agents": "tsx scripts/list-agents.ts",
     "probe:acp": "tsx scripts/acp-probe.ts",
     "test": "tsx --test --test-concurrency=1 test/tunnel/*.test.ts test/bus/*.test.ts test/connectors/*.test.ts"

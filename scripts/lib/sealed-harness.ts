@@ -59,6 +59,7 @@ export type Harness = {
   hostToken?: string;
   hostPid?: number;
   restartHost?: () => Promise<void>;
+  restartRelay?: () => Promise<void>;
   openTunnel(): Promise<SealedTunnel>;
   close(): Promise<void>;
 };
@@ -539,6 +540,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
   let commandLogPath: string | undefined;
   let hostConfigPath: string | undefined;
   let restartHost: (() => Promise<void>) | undefined;
+  let restartRelay: (() => Promise<void>) | undefined;
   let closed = false;
   const logs: string[] = [];
 
@@ -595,24 +597,38 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
         );
       const port = await freePort();
       base = `http://127.0.0.1:${port}`;
-      child = spawn(process.execPath, [entry], {
-        cwd: RELAY_DIR,
-        env: {
-          ...process.env,
-          NODE_ENV: "test",
-          PORT: String(port),
-          HOST: "127.0.0.1",
-          DATABASE_PATH: join(dataDir, "relay.sqlite"),
-          JWT_SECRET: randomBytes(48).toString("base64url"),
-          ALLOW_LEGACY_WEB_PROXY: "0",
-          PAIR_RATE_LIMIT_PER_MINUTE: "1000",
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      child.stdout?.on("data", (chunk) => logs.push(String(chunk)));
-      child.stderr?.on("data", (chunk) => logs.push(String(chunk)));
-      await waitForRelay(base, child, logs);
+      const relayEnv = {
+        ...process.env,
+        NODE_ENV: "test",
+        PORT: String(port),
+        HOST: "127.0.0.1",
+        DATABASE_PATH: join(dataDir, "relay.sqlite"),
+        JWT_SECRET: randomBytes(48).toString("base64url"),
+        ALLOW_LEGACY_WEB_PROXY: "0",
+        PAIR_RATE_LIMIT_PER_MINUTE: "1000",
+      };
+      const startRelay = async () => {
+        child = spawn(process.execPath, [entry], {
+          cwd: RELAY_DIR,
+          env: relayEnv,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        child.stdout?.on("data", (chunk) => logs.push(String(chunk)));
+        child.stderr?.on("data", (chunk) => logs.push(String(chunk)));
+        await waitForRelay(base, child, logs);
+      };
+      await startRelay();
       console.log(`Relay    ${base} (local, temporary database)`);
+      restartRelay = async () => {
+        const previous = child;
+        if (previous) {
+          previous.kill("SIGTERM");
+          await sleep(300);
+          if (previous.exitCode === null) previous.kill("SIGKILL");
+        }
+        await startRelay();
+        if (pairing) await waitForHostOnline(base, pairing.clientToken);
+      };
     } else {
       const response = await fetch(`${base}/health`, { signal: AbortSignal.timeout(5_000) });
       if (!response.ok) throw new Error(`${base}/health returned ${response.status}`);
@@ -691,6 +707,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
         return hostChild?.pid;
       },
       restartHost,
+      restartRelay,
       openTunnel,
       close,
     };
