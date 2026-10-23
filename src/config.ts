@@ -61,7 +61,10 @@ export function requireRelayConfig(config: Config, scope: "pair" | "up" | "unpai
   if (!config.relay.trim()) {
     missing.push("AGENT_HOST_RELAY（电脑连 Relay 的地址，例如 http://127.0.0.1:8787）");
   }
-  if (scope !== "unpair" && !config.publicRelayUrl?.trim()) {
+  // An already-paired host can start without the QR-facing address; it is only
+  // needed when a phone is about to scan a new pairing QR.
+  const needsPublicUrl = scope === "pair" || (scope === "up" && !config.hostToken);
+  if (needsPublicUrl && !config.publicRelayUrl?.trim()) {
     missing.push("PUBLIC_RELAY_URL（手机可达的局域网地址，例如 http://192.168.1.10:8787）");
   }
   if (missing.length > 0) {
@@ -75,7 +78,7 @@ export function requireRelayConfig(config: Config, scope: "pair" | "up" | "unpai
     );
   }
   if (
-    scope !== "unpair" &&
+    needsPublicUrl &&
     /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/i.test(config.publicRelayUrl ?? "")
   ) {
     console.warn(
