@@ -53,6 +53,10 @@ export type Harness = {
   relayUrl: string;
   tunnel: SealedTunnel;
   commandLogPath?: string;
+  configPath?: string;
+  clientToken?: string;
+  hostId?: string;
+  hostToken?: string;
   hostPid?: number;
   restartHost?: () => Promise<void>;
   openTunnel(): Promise<SealedTunnel>;
@@ -533,6 +537,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
   const tunnels = new Set<SealedTunnel>();
   let pairing: Pairing | undefined;
   let commandLogPath: string | undefined;
+  let hostConfigPath: string | undefined;
   let restartHost: (() => Promise<void>) | undefined;
   let closed = false;
   const logs: string[] = [];
@@ -623,15 +628,16 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       e2eeMasterKey: pairing.masterKey,
       hostName,
       relay: base,
+      publicRelayUrl: base,
       dshPort: options.dshPort ?? 1,
     };
     if (options.hostProcess) {
-      const configPath = join(dataDir, "config.json");
-      await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
+      hostConfigPath = join(dataDir, "config.json");
+      await writeFile(hostConfigPath, `${JSON.stringify(config, null, 2)}\n`);
       const startHost = async () => {
         hostChild = spawn(process.execPath, ["dist/cli.js", "up"], {
           cwd: HOST_DIR,
-          env: { ...process.env, AGENT_HOST_CONFIG: configPath },
+          env: { ...process.env, AGENT_HOST_CONFIG: hostConfigPath },
           stdio: ["ignore", "pipe", "pipe"],
         });
         hostChild.stdout?.on("data", (chunk) => logs.push(String(chunk)));
@@ -677,6 +683,10 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       relayUrl: base,
       tunnel,
       commandLogPath,
+      configPath: hostConfigPath,
+      clientToken: pairing.clientToken,
+      hostId: pairing.hostId,
+      hostToken: pairing.hostToken,
       get hostPid() {
         return hostChild?.pid;
       },
