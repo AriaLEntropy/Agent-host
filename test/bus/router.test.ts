@@ -5,11 +5,20 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { Snapshot } from "../contract/protocol.js";
 import { flushCommandLog, setCommandLogPath, waitForCommands } from "../../src/bus/commands.js";
-import { isBusPath, routeBus, SNAPSHOT_LONG_POLL_MS } from "../../src/bus/router.js";
+import {
+  isBusPath,
+  PROTOCOL_VERSION,
+  routeBus,
+  SNAPSHOT_LONG_POLL_MS,
+} from "../../src/bus/router.js";
 import { openBusWebSocket } from "../../src/bus/socket.js";
 import { busStore, MAX_TASKS, type BusProject, type BusTask } from "../../src/bus/store.js";
 
 const agentId = "hV3nQ7pLxK2mR8sTfW4bZQ";
+
+test("protocol version is locked to 3.9", () => {
+  assert.equal(PROTOCOL_VERSION, "3.9");
+});
 
 function resetBus() {
   busStore.reset();

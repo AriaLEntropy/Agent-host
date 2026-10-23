@@ -11,6 +11,7 @@ import {
 } from "../../src/bus/commands.js";
 import { busStore } from "../../src/bus/store.js";
 import { resetRuntime } from "../../src/connectors/runtime.js";
+import { Command } from "../contract/protocol.js";
 
 const agentId = "hV3nQ7pLxK2mR8sTfW4bZQ";
 const fixtureDir = fileURLToPath(
@@ -47,4 +48,19 @@ test("every plain command fixture decodes and produces a command result", async 
   resetRuntime();
   setCommandLogPath(undefined);
   busStore.reset();
+});
+
+test("every invalid command fixture is rejected by the contract schema", async () => {
+  const invalidDir = fileURLToPath(
+    new URL("../contract/protocol-fixtures/plain/invalid", import.meta.url),
+  );
+  const files = (await readdir(invalidDir)).filter(
+    (name) => name.startsWith("command-") && name.endsWith(".json"),
+  );
+  assert.ok(files.length >= 5, `expected at least 5 invalid command fixtures, got ${files.length}`);
+
+  for (const file of files) {
+    const raw = JSON.parse(await readFile(join(invalidDir, file), "utf8"));
+    assert.equal(Command.safeParse(raw).success, false, `${file} should be rejected`);
+  }
 });
