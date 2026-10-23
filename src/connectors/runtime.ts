@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { basename, delimiter, dirname } from "node:path";
 import { homedir } from "node:os";
@@ -11,7 +11,9 @@ import {
 } from "../bus/store.js";
 import { discoverAgents, type AgentSpec } from "./discover.js";
 
-export const INITIALIZE_TIMEOUT_MS = 10_000;
+// Real agents can take tens of seconds to cold start (Gemini CLI measured
+// 35–42s on Windows), so a 10s ceiling rejects agents that are merely slow.
+export const INITIALIZE_TIMEOUT_MS = 60_000;
 export const IDLE_MS = 10 * 60 * 1000;
 const MAX_USER_MESSAGES = 40;
 const MAX_TOOL_MESSAGES = 160;
@@ -98,10 +100,17 @@ export class AcpProcess {
       throw new AcpRejected("unsupported ACP version");
     }
     const agentCaps = record(result.agentCapabilities);
-    const promptCaps = record(result.promptCapabilities);
+    // ACP puts promptCapabilities under agentCapabilities. The top-level
+    // fallback keeps older fixtures (fake-acp) working.
+    const promptCaps = {
+      ...record(result.promptCapabilities),
+      ...record(agentCaps.promptCapabilities),
+    };
     const sessionCaps = record(agentCaps.sessionCapabilities);
     this.capabilities.loadSession = agentCaps.loadSession === true;
-    this.capabilities.resume = sessionCaps.resume === true;
+    // sessionCapabilities.resume is an object marker, not a boolean.
+    this.capabilities.resume =
+      sessionCaps.resume !== undefined && sessionCaps.resume !== null && sessionCaps.resume !== false;
     this.capabilities.image = promptCaps.image === true;
   }
 
@@ -128,7 +137,15 @@ export class AcpProcess {
   kill() {
     clearTimeout(this.idleTimer);
     this.alive = false;
-    this.child?.kill();
+    const child = this.child;
+    if (!child || child.killed) return;
+    // Windows .cmd shims spawn a real child; child.kill() only reaps the shim
+    // and leaves the agent running (and locking its cwd).
+    if (process.platform === "win32" && child.pid) {
+      spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+      return;
+    }
+    child.kill();
   }
 
   private send(message: unknown) {
@@ -164,11 +181,14 @@ export class AcpProcess {
       clearTimeout(waiter.timer);
       const body = message as RpcResult;
       if (body.error) {
-        waiter.reject(
-          body.error.code === -32000
-            ? new AcpAuthRequired(body.error.message ?? "auth required")
-            : new AcpRejected(body.error.message ?? "ACP error"),
-        );
+        const detail = body.error.message ?? "ACP error";
+        // Some agents (Gemini CLI) report missing credentials with a generic
+        // code instead of -32000; classify by message so callers can surface
+        // "log in on the computer" instead of a raw ACP error.
+        const authLike =
+          body.error.code === -32000 ||
+          /auth|api[- ]?key|login|sign in|credential/i.test(detail);
+        waiter.reject(authLike ? new AcpAuthRequired(detail) : new AcpRejected(detail));
         return;
       }
       waiter.resolve(body.result);
