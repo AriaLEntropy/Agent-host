@@ -1,6 +1,7 @@
 import { PLUGIN_VERSION } from "../tunnel/version.js";
 
 export const MAX_TASKS = 400;
+export const MAX_PROJECTS = 60;
 export const MAX_RECENT_RESULTS = 20;
 
 export type HostPlatform = "windows" | "macos" | "linux";
@@ -157,7 +158,7 @@ export class TaskStore {
         },
       ],
       tasks: this.tasks,
-      projects: this.projects,
+      projects: this.projects.slice(0, MAX_PROJECTS),
       recentResults: this.recentResults,
       recentMessages: [],
       seq: this.seq,
@@ -193,7 +194,10 @@ export class TaskStore {
 
   rememberProject(project: BusProject) {
     const before = JSON.stringify(this.projects);
-    this.projects = [project, ...this.projects.filter((item) => item.path !== project.path)];
+    this.projects = [project, ...this.projects.filter((item) => item.path !== project.path)].slice(
+      0,
+      MAX_PROJECTS,
+    );
     if (JSON.stringify(this.projects) !== before) this.publish({ kind: "snapshot" });
   }
 
