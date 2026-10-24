@@ -59,7 +59,7 @@ export type Harness = {
   hostToken?: string;
   hostPid?: number;
   restartHost?: () => Promise<void>;
-  restartRelay?: () => Promise<void>;
+  restartRelay?: (downMs?: number) => Promise<void>;
   openTunnel(): Promise<SealedTunnel>;
   close(): Promise<void>;
 };
@@ -515,8 +515,9 @@ async function waitForConnected(host: RelayClient) {
   throw new Error("host did not connect to Relay");
 }
 
-async function waitForHostOnline(base: string, clientToken: string) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+async function waitForHostOnline(base: string, clientToken: string, timeoutMs = 10_000) {
+  const attempts = Math.max(1, Math.ceil(timeoutMs / 100));
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     const ticket = await post(base, "/access-ticket", {}, clientToken);
     if (ticket.status === 200) return;
     await sleep(100);
@@ -619,15 +620,19 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       };
       await startRelay();
       console.log(`Relay    ${base} (local, temporary database)`);
-      restartRelay = async () => {
+      restartRelay = async (downMs = 300) => {
         const previous = child;
         if (previous) {
           previous.kill("SIGTERM");
           await sleep(300);
           if (previous.exitCode === null) previous.kill("SIGKILL");
         }
+        if (downMs > 300) await sleep(downMs - 300);
         await startRelay();
-        if (pairing) await waitForHostOnline(base, pairing.clientToken);
+        if (pairing) {
+          // Backoff can grow to 60s during a long outage.
+          await waitForHostOnline(base, pairing.clientToken, Math.max(10_000, downMs + 90_000));
+        }
       };
     } else {
       const response = await fetch(`${base}/health`, { signal: AbortSignal.timeout(5_000) });

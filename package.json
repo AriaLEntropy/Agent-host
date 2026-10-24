@@ -37,6 +37,7 @@
     "smoke:m1-tunnel": "tsx scripts/m1-tunnel.ts",
     "smoke:m1-bus": "tsx scripts/m1-bus.ts",
     "smoke:m1-acp": "tsx scripts/m1-acp.ts",
+    "smoke:m1-outage": "tsx scripts/m1-outage.ts",
     "list:agents": "tsx scripts/list-agents.ts",
     "probe:acp": "tsx scripts/acp-probe.ts",
     "test": "tsx --test --test-concurrency=1 test/tunnel/*.test.ts test/bus/*.test.ts test/connectors/*.test.ts"
