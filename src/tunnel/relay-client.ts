@@ -180,7 +180,7 @@ export class RelayClient {
   async start() {
     this.stopped = false;
     this.occupySlot();
-    if (!this.config.agentId && !this.config.relay.includes("127.0.0.1")) {
+    if (!this.config.agentId) {
       this.config = await ensureAgentId(this.config);
       this.agentId = this.config.agentId ?? this.agentId;
     }

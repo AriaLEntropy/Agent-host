@@ -1,14 +1,17 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { mkdir } from "node:fs/promises";
 import { createInterface } from "node:readline";
-import { basename, delimiter, dirname } from "node:path";
+import { basename, delimiter, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import {
   busStore,
   type BusCommandResult,
   type BusMessage,
+  type BusModelOption,
   type BusTask,
   type ListedAgent,
 } from "../bus/store.js";
+import { hostDataDir } from "../config.js";
 import { discoverAgents, type AgentSpec } from "./discover.js";
 
 // Real agents can take tens of seconds to cold start (Gemini CLI measured
@@ -210,10 +213,20 @@ const specs: AgentSpec[] = [];
 const hiddenRegistryIds = new Set<string>();
 const processes = new Map<string, AcpProcess>();
 const sessions = new Map<string, LiveSession>();
+const connectorModels = new Map<string, BusModelOption[]>();
+const connectorModelLookup = new Map<string, Map<string, ModelResolution>>();
+const probedModelAgents = new Set<string>();
 let idleMs = IDLE_MS;
 
 export function useAgents(agents: AgentSpec[], announce = false) {
   specs.splice(0, specs.length, ...agents);
+  const known = new Set(agents.map((agent) => agent.id));
+  for (const id of connectorModels.keys()) {
+    if (!known.has(id)) {
+      connectorModels.delete(id);
+      connectorModelLookup.delete(id);
+    }
+  }
   busStore.setAgents(agents.map(listed), announce);
 }
 
@@ -222,6 +235,9 @@ export function resetRuntime() {
   processes.clear();
   sessions.clear();
   hiddenRegistryIds.clear();
+  connectorModels.clear();
+  connectorModelLookup.clear();
+  probedModelAgents.clear();
   specs.splice(0, specs.length);
   idleMs = IDLE_MS;
   busStore.setAgents([]);
@@ -234,7 +250,215 @@ export function setIdleMs(ms: number) {
 export async function refreshAgents() {
   const found = await discoverAgents({ hiddenRegistryIds });
   useAgents(found.agents, true);
+  warmConnectorModels(found.agents);
   return found;
+}
+
+/**
+ * 模型列表来自 ACP 的 session/new（availableModels），没有单独的查询接口。
+ * 连接器第一次出现时用一个空的探测 session 取一次并缓存；探测失败不影响
+ * 连接器本身。并发的冷启动可能很慢，所以两个一组。
+ */
+export function warmConnectorModels(agents: AgentSpec[] = specs) {
+  const pending = agents.filter(
+    (agent) => agent.available && agent.executable && !probedModelAgents.has(agent.id),
+  );
+  for (const agent of pending) probedModelAgents.add(agent.id);
+  if (pending.length === 0) return;
+  void (async () => {
+    for (let index = 0; index < pending.length; index += 2) {
+      await Promise.all(pending.slice(index, index + 2).map((agent) => probeModels(agent)));
+    }
+  })();
+}
+
+async function probeModels(spec: AgentSpec) {
+  try {
+    const process = await ensureProcess(spec);
+    const cwd = join(hostDataDir(), "model-probe");
+    await mkdir(cwd, { recursive: true });
+    const created = await process.call("session/new", { cwd, mcpServers: [] });
+    rememberModels(spec, created);
+  } catch {
+    // 模型列表是可选能力：探测失败时保持连接器可用。
+  }
+}
+
+type ModelResolution = {
+  acpIds: Map<string, string>;
+  defaultAcpId: string;
+  defaultEffort: string;
+};
+
+type RawModel = {
+  rawId: string;
+  name: string;
+  base: string;
+  effort: string;
+  grouped: boolean;
+};
+
+/**
+ * ACP 的模型 id 可能是 `gpt-6.1-sol[high]` 这种“模型+强度”的组合，
+ * 而且 `[` `]` 不在协议允许的 ModelOption.id 字符集里。名字以
+ * `(high)` 结尾的条目按模型分组，强度放进 efforts；其余条目原样
+ * 保留，只把非法字符换成 `-`，再用 lookup 映射回 ACP 的真实 id。
+ */
+function modelCatalogFromSession(created: unknown): {
+  options: BusModelOption[];
+  lookup: Map<string, ModelResolution>;
+} {
+  const models = record(record(created).models);
+  const available = Array.isArray(models.availableModels) ? models.availableModels : [];
+  const currentRaw = typeof models.currentModelId === "string" ? models.currentModelId : "";
+  const raw: RawModel[] = [];
+  const seenRaw = new Set<string>();
+  for (const item of available) {
+    const model = record(item);
+    const rawId =
+      typeof model.modelId === "string"
+        ? model.modelId
+        : typeof model.id === "string"
+          ? model.id
+          : "";
+    if (!rawId || seenRaw.has(rawId)) continue;
+    seenRaw.add(rawId);
+    const name = typeof model.name === "string" ? model.name.trim() : "";
+    const suffix = /^(.*)\[([a-z0-9-]{1,16})\]$/.exec(rawId);
+    const base = suffix?.[1] || rawId;
+    const effort = suffix?.[2] || "";
+    raw.push({
+      rawId,
+      name: name || rawId,
+      base,
+      effort,
+      grouped: effort !== "" && name.toLowerCase().endsWith(`(${effort})`.toLowerCase()),
+    });
+  }
+
+  const groups = new Map<string, RawModel[]>();
+  for (const entry of raw) {
+    if (!entry.grouped) continue;
+    const list = groups.get(entry.base) ?? [];
+    list.push(entry);
+    groups.set(entry.base, list);
+  }
+
+  const catalog: Array<{
+    option: BusModelOption;
+    resolution: ModelResolution;
+    isCurrent: boolean;
+  }> = [];
+  const usedIds = new Set<string>();
+
+  for (const entry of raw) {
+    if (entry.grouped) {
+      const group = groups.get(entry.base);
+      if (!group || group[0] !== entry) continue;
+      const efforts: string[] = [];
+      const acpIds = new Map<string, string>();
+      for (const member of group) {
+        if (!efforts.includes(member.effort)) efforts.push(member.effort);
+        if (!acpIds.has(member.effort)) acpIds.set(member.effort, member.rawId);
+      }
+      const current = group.find((member) => member.rawId === currentRaw);
+      const fallback = efforts.includes("medium") ? "medium" : efforts[0];
+      const defaultEffort = current?.effort || fallback || "";
+      const displayName = group[0].name.replace(/\s*\([^)]*\)\s*$/, "").trim() || entry.base;
+      const optionId = uniqueModelId(sanitizeModelId(entry.base), usedIds);
+      catalog.push({
+        option: {
+          id: optionId,
+          displayName: truncateModelName(displayName),
+          efforts,
+          ...(defaultEffort ? { defaultEffort } : {}),
+        },
+        resolution: {
+          acpIds,
+          defaultAcpId: acpIds.get(defaultEffort) ?? group[0].rawId,
+          defaultEffort,
+        },
+        isCurrent: Boolean(current),
+      });
+      continue;
+    }
+    const optionId = uniqueModelId(sanitizeModelId(entry.rawId), usedIds);
+    catalog.push({
+      option: { id: optionId, displayName: truncateModelName(entry.name) },
+      resolution: { acpIds: new Map(), defaultAcpId: entry.rawId, defaultEffort: "" },
+      isCurrent: entry.rawId === currentRaw,
+    });
+  }
+
+  // 协议要求“默认的在前”；ACP 的当前模型不一定排在第一个。
+  const currentIndex = catalog.findIndex((item) => item.isCurrent);
+  if (currentIndex > 0) catalog.unshift(catalog.splice(currentIndex, 1)[0]);
+
+  const lookup = new Map<string, ModelResolution>();
+  const options = catalog.slice(0, 24).map((item) => {
+    lookup.set(item.option.id, item.resolution);
+    return item.option;
+  });
+  return { options, lookup };
+}
+
+function sanitizeModelId(value: string) {
+  const cleaned = value
+    .replace(/[^A-Za-z0-9._:/-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "")
+    .slice(0, 64);
+  return cleaned || "model";
+}
+
+function uniqueModelId(base: string, used: Set<string>) {
+  let id = base;
+  let index = 2;
+  while (used.has(id)) {
+    id = `${base}-${index}`;
+    index += 1;
+  }
+  used.add(id);
+  return id;
+}
+
+function truncateModelName(name: string) {
+  return name.length > 40 ? name.slice(0, 40) : name;
+}
+
+function rememberModels(spec: AgentSpec, created: unknown) {
+  const catalog = modelCatalogFromSession(created);
+  if (catalog.options.length === 0) return;
+  const before = JSON.stringify(connectorModels.get(spec.id));
+  const after = JSON.stringify(catalog.options);
+  connectorModels.set(spec.id, catalog.options);
+  connectorModelLookup.set(spec.id, catalog.lookup);
+  if (before !== after) busStore.setAgents(specs.map(listed), true);
+}
+
+/** 把协议侧 id（可能带 efforts）还原成 ACP session/set_model 要的真实 id。 */
+function resolveModel(spec: AgentSpec, modelId: string, effort: string) {
+  const entry = connectorModelLookup.get(spec.id)?.get(modelId);
+  if (!entry) return { acpId: modelId, effort };
+  const chosenEffort = effort && entry.acpIds.has(effort) ? effort : entry.defaultEffort;
+  return {
+    acpId: entry.acpIds.get(chosenEffort) ?? entry.defaultAcpId,
+    effort: chosenEffort,
+  };
+}
+
+async function applyModel(
+  process: AcpProcess,
+  sessionId: string,
+  currentModelId: string,
+  modelId: string,
+) {
+  if (currentModelId === modelId) return;
+  try {
+    await process.call("session/set_model", { sessionId, modelId }, 30_000);
+  } catch (error) {
+    throw new AcpRejected(`model is not available: ${messageOf(error)}`);
+  }
 }
 
 export function executeCommand(command: Record<string, unknown>): Promise<BusCommandResult> {
@@ -270,21 +494,40 @@ async function startTask(commandId: string, payload: Record<string, unknown>): P
     return done(commandId, false, "image is not supported");
   }
   if (attachments.length > 0) return done(commandId, false, "image bytes are not available");
-  const cwd = typeof payload.projectPath === "string" && payload.projectPath.trim() ? payload.projectPath : homedir();
+  const hasProject = typeof payload.projectPath === "string" && payload.projectPath.trim().length > 0;
+  const cwd = hasProject ? String(payload.projectPath).trim() : homedir();
   const created = record(await process.call("session/new", { cwd, mcpServers: [] }));
   const sessionId = typeof created.sessionId === "string" ? created.sessionId : "";
   if (!sessionId) return done(commandId, false, "session/new did not return a session id");
+  rememberModels(spec, created);
+  const requestedModel = typeof payload.model === "string" ? payload.model.trim() : "";
+  const requestedEffort = typeof payload.effort === "string" ? payload.effort.trim() : "";
+  let appliedEffort = "";
+  if (requestedModel) {
+    const currentModel =
+      typeof record(created.models).currentModelId === "string"
+        ? String(record(created.models).currentModelId)
+        : "";
+    const resolved = resolveModel(spec, requestedModel, requestedEffort);
+    await applyModel(process, sessionId, currentModel, resolved.acpId);
+    appliedEffort = resolved.effort;
+  }
   const taskId = spec.kind === "dsh" ? `dsh:${sessionId}` : `acp:${spec.id}:${sessionId}`;
   const now = new Date().toISOString();
-  const task = baseTask(spec, taskId, cwd, prompt.slice(0, 80) || "新任务", now);
+  const task = baseTask(spec, taskId, cwd, prompt.slice(0, 80) || "新任务", now, !hasProject);
+  if (requestedModel) task.model = requestedModel;
+  if (appliedEffort) task.effort = appliedEffort;
   sessions.set(taskId, { taskId, sessionId, cwd, messages: [], agentText: "" });
-  busStore.rememberProject({
-    agentId: task.agentId,
-    path: cwd,
-    name: task.projectName,
-    lastUsedAt: now,
-    pinned: false,
-  });
+  busStore.rememberSession(taskId, sessionId, spec.kind === "dsh" ? "dsh-acp" : "acp");
+  if (hasProject) {
+    busStore.rememberProject({
+      agentId: task.agentId,
+      path: cwd,
+      name: task.projectName,
+      lastUsedAt: now,
+      pinned: false,
+    });
+  }
   busStore.upsertTask(task);
   void runPrompt(process, taskId, commandId, prompt).catch((error) => markFailed(taskId, messageOf(error)));
   return { commandId, ok: true, taskId, finishedAt: now };
@@ -308,6 +551,19 @@ async function followUp(commandId: string, payload: Record<string, unknown>): Pr
   }
   if (attachments.length > 0 && !process.capabilities.image) return done(commandId, false, "image is not supported");
   if (attachments.length > 0) return done(commandId, false, "image bytes are not available");
+  const nextTask = { ...task };
+  const requestedModel = typeof payload.model === "string" ? payload.model.trim() : "";
+  const requestedEffort = typeof payload.effort === "string" ? payload.effort.trim() : "";
+  if (requestedModel && (requestedModel !== task.model || requestedEffort !== (task.effort ?? ""))) {
+    const resolved = resolveModel(spec, requestedModel, requestedEffort);
+    await applyModel(process, session.sessionId, "", resolved.acpId);
+    nextTask.model = requestedModel;
+    nextTask.effort = resolved.effort;
+  }
+  if (nextTask.model !== task.model || nextTask.effort !== task.effort) {
+    busStore.upsertTask({ ...nextTask, updatedAt: new Date().toISOString() });
+  }
+  busStore.bumpSessionRevision(taskId);
   void runPrompt(process, taskId, commandId, prompt).catch((error) => markFailed(taskId, messageOf(error)));
   return done(commandId, true, undefined, taskId);
 }
@@ -352,17 +608,14 @@ async function fetchMessages(commandId: string, payload: Record<string, unknown>
   const taskId = typeof payload.taskId === "string" ? payload.taskId : "";
   const session = sessions.get(taskId);
   const task = busStore.taskById(taskId);
-  if (!session || !task) return done(commandId, false, "task not found");
-  const userAndAgent = session.messages.filter((message) => message.role !== "tool");
-  const tools = session.messages.filter((message) => message.role === "tool");
-  const messages = [...userAndAgent.slice(-MAX_USER_MESSAGES), ...tools.slice(-MAX_TOOL_MESSAGES)];
-  busStore.emitTaskMessages({
-    taskId,
-    agentId: task.agentId,
-    messages,
-    hasMore: messages.length < session.messages.length,
-    fetchedAt: new Date().toISOString(),
-  });
+  if (!task) return done(commandId, false, "task not found");
+  if (!session) {
+    const stored = busStore.messagesFor(taskId);
+    if (!stored) return done(commandId, false, "task not found");
+    busStore.emitTaskMessages({ ...stored, fetchedAt: new Date().toISOString() });
+    return done(commandId, true, undefined, taskId);
+  }
+  emitSessionMessages(taskId, task.agentId, session);
   return done(commandId, true, undefined, taskId);
 }
 
@@ -482,6 +735,21 @@ async function runPrompt(process: AcpProcess, taskId: string, commandId: string,
   const stop = result.stopReason;
   const status = stop === "end_turn" ? "completed" : stop === "cancelled" ? "interrupted" : "failed";
   busStore.upsertTask({ ...withoutPending(current), status, updatedAt: new Date().toISOString() });
+  const refreshed = busStore.taskById(taskId);
+  if (refreshed) emitSessionMessages(taskId, refreshed.agentId, session);
+}
+
+function emitSessionMessages(taskId: string, agentId: string, session: LiveSession) {
+  const userAndAgent = session.messages.filter((message) => message.role !== "tool");
+  const tools = session.messages.filter((message) => message.role === "tool");
+  const messages = [...userAndAgent.slice(-MAX_USER_MESSAGES), ...tools.slice(-MAX_TOOL_MESSAGES)];
+  busStore.emitTaskMessages({
+    taskId,
+    agentId,
+    messages,
+    hasMore: messages.length < session.messages.length,
+    fetchedAt: new Date().toISOString(),
+  });
 }
 
 function failOpenTasks(spec: AgentSpec) {
@@ -517,15 +785,23 @@ function processKey(spec: AgentSpec) {
   return `${spec.kind}:${spec.id}`;
 }
 
-function baseTask(spec: AgentSpec, taskId: string, cwd: string, title: string, now: string): BusTask {
+function baseTask(
+  spec: AgentSpec,
+  taskId: string,
+  cwd: string,
+  title: string,
+  now: string,
+  outsideProject = false,
+): BusTask {
   return {
     id: taskId,
     agentId: busStore.agentId(),
     source: spec.kind,
     ...(spec.kind === "acp" ? { connectorId: spec.id } : {}),
     title,
-    projectPath: cwd,
-    projectName: basename(cwd) || cwd,
+    projectPath: outsideProject ? "" : cwd,
+    projectName: outsideProject ? "" : basename(cwd) || cwd,
+    ...(outsideProject ? { outsideProject: true } : {}),
     status: "running",
     origin: "watch",
     controllable: true,
@@ -541,6 +817,7 @@ function withoutPending(task: BusTask): BusTask {
 }
 
 function listed(agent: AgentSpec): ListedAgent {
+  const models = connectorModels.get(agent.id);
   return {
     id: agent.id,
     kind: agent.kind,
@@ -548,6 +825,7 @@ function listed(agent: AgentSpec): ListedAgent {
     available: agent.available,
     enabled: agent.enabled,
     lastError: agent.lastError,
+    ...(models?.length ? { models } : {}),
   };
 }
 

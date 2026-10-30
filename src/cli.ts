@@ -2,9 +2,12 @@
 import { Command } from "commander";
 import { join } from "node:path";
 import { loadCommandLog, setCommandLogPath } from "./bus/commands.js";
+import { loadBusState } from "./bus/persistence.js";
+import { busStore, hostPlatform } from "./bus/store.js";
 import { refreshAgents } from "./connectors/runtime.js";
 import {
   checkRelayHealth,
+  ensureAgentId,
   hostDataDir,
   loadConfig,
   requireRelayConfig,
@@ -17,8 +20,19 @@ import { PLUGIN_VERSION } from "./tunnel/version.js";
 async function prepare() {
   setCommandLogPath(join(hostDataDir(), "commands.json"));
   await loadCommandLog();
+  const config = await ensureAgentId(await loadConfig());
+  const statePath = join(hostDataDir(), "bus-state.json");
+  busStore.configurePersistence(statePath);
+  const state = await loadBusState(statePath);
+  if (state) busStore.hydrate(state, config.agentId ?? "");
+  busStore.identify({
+    agentId: config.agentId ?? "",
+    hostName: config.hostName,
+    hostVersion: PLUGIN_VERSION,
+    platform: hostPlatform(),
+  });
   await refreshAgents().catch(() => undefined);
-  return loadConfig();
+  return config;
 }
 
 const program = new Command()
@@ -51,12 +65,19 @@ program
       },
     });
     await client.start();
-    const stop = () => {
-      client.stop();
-      process.exit(0);
+    let stopping = false;
+    const stop = async () => {
+      if (stopping) return;
+      stopping = true;
+      try {
+        await busStore.flushPersistence();
+      } finally {
+        client.stop();
+        process.exit(0);
+      }
     };
-    process.on("SIGINT", stop);
-    process.on("SIGTERM", stop);
+    process.on("SIGINT", () => void stop());
+    process.on("SIGTERM", () => void stop());
   });
 
 program
