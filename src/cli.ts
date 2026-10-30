@@ -1,9 +1,20 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { loadCommandLog, setCommandLogPath } from "./bus/commands.js";
 import { loadBusState } from "./bus/persistence.js";
 import { busStore, hostPlatform } from "./bus/store.js";
+import { discoverAgents, type AgentSpec, type ManifestProblem } from "./connectors/discover.js";
+import {
+  DEFAULT_CHECK_PROMPT,
+  ProbeError,
+  formatAgentLine,
+  formatAgentProblem,
+  probeAcpAgent,
+  probeErrorLabel,
+  probeExitCode,
+} from "./connectors/probe.js";
 import { flushConnectorSettings, refreshAgents } from "./connectors/runtime.js";
 import {
   checkRelayHealth,
@@ -33,6 +44,101 @@ async function prepare() {
   });
   await refreshAgents().catch(() => undefined);
   return config;
+}
+
+export type AgentDiscoveryResult = {
+  agents: AgentSpec[];
+  problems: ManifestProblem[];
+};
+
+export type AgentDiscover = () => Promise<AgentDiscoveryResult>;
+
+export type AgentCheckDeps = {
+  discover?: AgentDiscover;
+  probe?: typeof probeAcpAgent;
+};
+
+/**
+ * `agent list`：只读发现结果，不起进程。
+ *
+ * 逐行输出 id / kind / name / available / lastError；清单问题也打印成
+ * `✗ 文件：原因`。按上游约定，列表命令本身总是退出 0（发现异常也只提示）。
+ */
+export async function runAgentList(deps: { discover?: AgentDiscover } = {}): Promise<number> {
+  const discover = deps.discover ?? discoverAgents;
+  try {
+    const found = await discover();
+    for (const agent of found.agents) console.log(formatAgentLine(agent));
+    for (const problem of found.problems) console.log(formatAgentProblem(problem));
+  } catch (error) {
+    console.error(`检测 agent 失败：${messageOf(error)}`);
+  }
+  return 0;
+}
+
+/**
+ * `agent check <id> [--prompt <text>]`：启动 ACP agent 跑一轮自查。
+ *
+ * 退出码：0 成功；1 自查失败（超时 / 拒绝 / 非 end_turn）；2 用法或不可用
+ * （id 不存在、不是 ACP、没有可执行文件）；3 需要登录。
+ */
+export async function runAgentCheck(
+  id: string,
+  prompt?: string,
+  deps: AgentCheckDeps = {},
+): Promise<number> {
+  const discover = deps.discover ?? discoverAgents;
+  const probe = deps.probe ?? probeAcpAgent;
+
+  let found: AgentDiscoveryResult;
+  try {
+    found = await discover();
+  } catch (error) {
+    console.error(`检测 agent 失败：${messageOf(error)}`);
+    return 1;
+  }
+
+  const spec = found.agents.find((agent) => agent.id === id);
+  if (!spec) {
+    console.error(`找不到 agent：${id}（用 agent list 查看可用项）`);
+    return 2;
+  }
+  if (spec.kind !== "acp" && spec.kind !== "dsh") {
+    console.error(`agent ${id} 的类型是 ${spec.kind}，只有 ACP/dsh agent 支持 check`);
+    return 2;
+  }
+  if (!spec.available || !spec.executable) {
+    console.error(`agent ${id} 不可用：${spec.lastError ?? "找不到可执行文件"}`);
+    return 2;
+  }
+
+  const text = prompt ?? DEFAULT_CHECK_PROMPT;
+  console.log(`agent: ${spec.id} (${spec.name})`);
+  console.log(`command: ${[spec.executable, ...spec.args].join(" ").trim()}`);
+
+  try {
+    const result = await probe(spec, text);
+    console.log(`initialize: ok（protocolVersion=${result.protocolVersion}）`);
+    console.log(
+      `capabilities: loadSession=${result.capabilities.loadSession} resume=${result.capabilities.resume} image=${result.capabilities.image} session/list=${result.capabilities.listSessions}`,
+    );
+    console.log(`session/new: ok (${result.sessionId})`);
+    console.log(`session/prompt: stopReason=${result.stopReason ?? "unknown"}`);
+    for (const tool of result.toolCalls) console.log(`tool: ${tool.title || "(未命名)"}`);
+    console.log(`agent: ${result.agentText || "(空)"}`);
+    return result.stopReason === "end_turn" ? 0 : 1;
+  } catch (error) {
+    if (error instanceof ProbeError) {
+      console.error(`${probeErrorLabel(error)}: ${error.message}`);
+      return probeExitCode(error);
+    }
+    console.error(messageOf(error));
+    return 1;
+  }
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 const program = new Command()
@@ -107,7 +213,39 @@ program
     console.log("Pairing removed");
   });
 
-program.parseAsync().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+const agentCommand = program
+  .command("agent")
+  .description("Inspect local agents and run an ACP self-check");
+
+agentCommand
+  .command("list")
+  .description("List discovered agents (id, kind, name, available, lastError)")
+  .action(async () => {
+    process.exitCode = await runAgentList();
+  });
+
+agentCommand
+  .command("check <id>")
+  .description("Start an ACP agent and run initialize + prompt")
+  .option("--prompt <text>", "prompt sent to the agent", DEFAULT_CHECK_PROMPT)
+  .action(async (id: string, options: { prompt?: string }) => {
+    process.exitCode = await runAgentCheck(id, options.prompt);
+  });
+
+// 只在作为入口脚本运行时解析参数；测试可以直接 import runAgentList / runAgentCheck。
+const isEntryPoint = (() => {
+  const script = process.argv[1];
+  if (!script) return false;
+  try {
+    return import.meta.url === pathToFileURL(resolve(script)).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (isEntryPoint) {
+  program.parseAsync().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}
