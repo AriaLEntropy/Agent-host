@@ -2,7 +2,7 @@ import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import { openBusWebSocket } from "../bus/socket.js";
-import { isBusPath, routeBus } from "../bus/router.js";
+import { isBusPath, routeBus, type BusResponse } from "../bus/router.js";
 import { hostPlatform, busStore } from "../bus/store.js";
 import { Config, createAgentId, ensureAgentId } from "../config.js";
 import { PLUGIN_VERSION } from "./version.js";
@@ -130,6 +130,18 @@ export function localPath(value: unknown): string {
   )
     throw new E2eeError("invalid local path");
   return value;
+}
+
+/** 隧道里的头名大小写不固定，按名字不区分大小写取第一个字符串值。 */
+export function headerValue(headers: unknown, name: string): string | undefined {
+  if (!headers || typeof headers !== "object") return undefined;
+  const wanted = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers as Record<string, unknown>)) {
+    if (key.toLowerCase() !== wanted) continue;
+    if (typeof value === "string") return value;
+    if (Array.isArray(value) && typeof value[0] === "string") return value[0];
+  }
+  return undefined;
 }
 
 function closeSocket(socket: WebSocket, code: unknown, reason: unknown) {
@@ -473,23 +485,37 @@ export class RelayClient {
   }
 
   private async serveBus(sessionId: string, channel: string, path: string, msg: Envelope) {
-    const response = await routeBus({
-      method: String(msg.payload.method ?? "GET"),
-      path,
-      agentId: this.agentId,
-      hostName: this.config.hostName,
-      hostVersion: PLUGIN_VERSION,
-      platform: hostPlatform(),
-      forwardsDsh: this.health,
-      body: Buffer.from(msg.payload.bodyB64 ?? "", "base64"),
-    });
+    let response: BusResponse;
+    try {
+      response = await routeBus({
+        method: String(msg.payload.method ?? "GET"),
+        path,
+        agentId: this.agentId,
+        hostName: this.config.hostName,
+        hostVersion: PLUGIN_VERSION,
+        platform: hostPlatform(),
+        forwardsDsh: this.health,
+        body: Buffer.from(msg.payload.bodyB64 ?? "", "base64"),
+        contentType: headerValue(msg.payload.headers, "content-type"),
+      });
+    } catch {
+      // routeBus 自己会把产物 I/O 错误折成 JSON；这里只兜住意外异常，
+      // 不让它变成未处理的 Promise rejection。
+      response = { status: 500, body: { error: "bus_error" } };
+    }
+    const binary = response.bytes;
+    const body = binary ?? Buffer.from(JSON.stringify(response.body));
     this.sendInner(
       sessionId,
       "http_res",
       {
         status: response.status,
-        headers: { "content-type": "application/json" },
-        bodyB64: Buffer.from(JSON.stringify(response.body)).toString("base64"),
+        headers: {
+          "content-type": binary
+            ? response.contentType ?? "application/octet-stream"
+            : "application/json",
+        },
+        bodyB64: body.toString("base64"),
         seq: 0,
         final: true,
       },

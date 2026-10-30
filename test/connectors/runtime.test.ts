@@ -4,10 +4,58 @@ import { Snapshot } from "../contract/protocol.js";
 import { waitForCommands } from "../../src/bus/commands.js";
 import { routeBus } from "../../src/bus/router.js";
 import { busStore } from "../../src/bus/store.js";
-import { resetRuntime, setIdleMs, useAgents } from "../../src/connectors/runtime.js";
+import {
+  resetRuntime,
+  setIdleMs,
+  setDshFactories,
+  useAgents,
+  type DshConnectorInstance,
+} from "../../src/connectors/runtime.js";
 
 const agentId = "hV3nQ7pLxK2mR8sTfW4bZQ";
 const fake = process.execPath;
+
+/**
+ * 这一组用例只测 ACP 路径与 dsh 的路由形状。dsh 的真实连接器会去扫 `~/.dsh`、
+ * 找本机 web，测试里一律换成假实例：`start` 直接写一条完成的 `dsh:sess-1`。
+ */
+function fakeDsh(): DshConnectorInstance {
+  return {
+    kind: "dsh",
+    runsUnderBotBus: true,
+    startObserving() {},
+    async stop() {},
+    async start(projectPath, prompt, images, selection) {
+      void prompt;
+      void images;
+      void selection;
+      const now = new Date().toISOString();
+      busStore.upsertTask({
+        id: "dsh:sess-1",
+        agentId,
+        source: "dsh",
+        title: "demo",
+        projectPath,
+        projectName: "demo",
+        status: "completed",
+        origin: "watch",
+        controllable: true,
+        startedAt: now,
+        updatedAt: now,
+      });
+      return { taskId: "dsh:sess-1", retainsLiveOwnership: false };
+    },
+    async followUp() {
+      return { taskId: "dsh:sess-1", retainsLiveOwnership: false };
+    },
+    async approve() {
+      return { taskId: "dsh:sess-1", retainsLiveOwnership: false };
+    },
+    async interrupt() {
+      return { taskId: "dsh:sess-1", retainsLiveOwnership: false };
+    },
+  };
+}
 
 function agentArgs() {
   const script = new URL("../fixtures/fake-acp.mjs", import.meta.url);
@@ -18,6 +66,8 @@ function reset() {
   resetRuntime();
   busStore.reset();
   busStore.identify({ agentId, hostName: "Agent Host", hostVersion: "1.0.0", platform: "windows" });
+  // 不启动真实 dsh，也不让它扫 ~/.dsh。
+  setDshFactories({ connector: () => fakeDsh() });
 }
 
 async function post(body: Record<string, unknown>) {

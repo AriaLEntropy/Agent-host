@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 import { Snapshot } from "../contract/protocol.js";
+import { ARTIFACT_TTL_MS, putUpload, setArtifactsDir } from "../../src/bus/artifacts.js";
 import { flushCommandLog, setCommandLogPath, waitForCommands } from "../../src/bus/commands.js";
 import {
   isBusPath,
@@ -15,6 +16,18 @@ import { openBusWebSocket } from "../../src/bus/socket.js";
 import { busStore, MAX_TASKS, type BusProject, type BusTask } from "../../src/bus/store.js";
 
 const agentId = "hV3nQ7pLxK2mR8sTfW4bZQ";
+
+let artifactsDir: string;
+
+before(async () => {
+  artifactsDir = await mkdtemp(join(tmpdir(), "agent-host-router-artifacts-"));
+  setArtifactsDir(artifactsDir);
+});
+
+after(async () => {
+  setArtifactsDir(undefined);
+  await rm(artifactsDir, { recursive: true, force: true });
+});
 
 test("protocol version is locked to 3.9", () => {
   assert.equal(PROTOCOL_VERSION, "3.9");
@@ -166,6 +179,74 @@ describe("bus routes", { concurrency: false }, () => {
       body: Buffer.alloc(2 * 1024 * 1024 + 1),
     });
     assert.equal(huge.status, 413);
+  });
+
+  test("PUT /bus/uploads stores image bytes and GET /bus/artifacts returns them", async () => {
+    resetBus();
+    const id = "A".repeat(22);
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const put = await routeBus({
+      method: "PUT",
+      path: `/bus/uploads/${id}`,
+      agentId,
+      body: bytes,
+      contentType: "image/png",
+    });
+    assert.equal(put.status, 201);
+    assert.deepEqual(put.body, { artifactId: id, size: bytes.length });
+
+    const got = await routeBus({ method: "GET", path: `/bus/artifacts/${id}`, agentId });
+    assert.equal(got.status, 200);
+    assert.equal(got.contentType, "image/png");
+    assert.deepEqual(got.bytes, bytes);
+    assert.deepEqual(got.body, {});
+  });
+
+  test("upload rejects bad ids, unsupported types, and missing content-type", async () => {
+    resetBus();
+    const bytes = Buffer.from("abc");
+    const badId = await routeBus({
+      method: "PUT",
+      path: "/bus/uploads/short",
+      agentId,
+      body: bytes,
+      contentType: "image/png",
+    });
+    assert.equal(badId.status, 400);
+    assert.deepEqual(badId.body, { error: "invalid_artifact_id" });
+
+    const wrongType = await routeBus({
+      method: "PUT",
+      path: `/bus/uploads/${"B".repeat(22)}`,
+      agentId,
+      body: bytes,
+      contentType: "text/plain",
+    });
+    assert.equal(wrongType.status, 415);
+
+    const noType = await routeBus({
+      method: "PUT",
+      path: `/bus/uploads/${"C".repeat(22)}`,
+      agentId,
+      body: bytes,
+    });
+    assert.equal(noType.status, 415);
+
+    const badGet = await routeBus({
+      method: "GET",
+      path: "/bus/artifacts/not-a-valid-artifact-id",
+      agentId,
+    });
+    assert.equal(badGet.status, 404);
+  });
+
+  test("expired artifacts are 404 through the router", async () => {
+    resetBus();
+    const id = "D".repeat(22);
+    await putUpload(id, Buffer.from([1, 2, 3]), "image/png", new Date(Date.now() - ARTIFACT_TTL_MS - 1000));
+    const got = await routeBus({ method: "GET", path: `/bus/artifacts/${id}`, agentId });
+    assert.equal(got.status, 404);
+    assert.deepEqual(got.body, { error: "not_found" });
   });
 
   test("a new websocket gets the snapshot and later events", () => {

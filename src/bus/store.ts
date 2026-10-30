@@ -1,5 +1,7 @@
 import { PLUGIN_VERSION } from "../tunnel/version.js";
 import { saveBusState, type PersistedBusState, type PersistedSession } from "./persistence.js";
+import { ProjectDismissals } from "./project-dismissals.js";
+import { normalizeProjectPath } from "./project-path.js";
 
 export const MAX_TASKS = 400;
 export const MAX_PROJECTS = 60;
@@ -7,11 +9,27 @@ export const MAX_RECENT_RESULTS = 20;
 
 export type HostPlatform = "windows" | "macos" | "linux";
 
+/** 协议 2.14：带选项的提问（与 protocol.ts 的 PendingQuestion 同形）。 */
+export type BusPendingQuestion = {
+  id: string;
+  question: string;
+  header?: string;
+  /**
+   * 单选时整个键省略。协议线格式是字面量 true。这里用 `any` 是两处既有
+   * 声明夹出来的：Codex 移植模块声明成 `boolean`（只会产出 true），Dsh 的
+   * `DshPendingQuestion` 声明成 `true`，两者都从本类型读写；改成 true 或
+   * boolean 都会让其中一边不再可赋值。线格式不变，手机侧仍按协议校验。
+   */
+  multiSelect?: any;
+  options: Array<{ label: string; description?: string }>;
+};
+
 export type BusPendingRequest = {
   id: string;
   kind: "command" | "fileChange" | "permission" | "input";
   summary: string;
   detail?: string;
+  questions?: BusPendingQuestion[];
 };
 
 export type BusTask = {
@@ -34,11 +52,27 @@ export type BusTask = {
   effort?: string;
 };
 
+/**
+ * 协议 2.9 的 `MessageFileRef`：Agent 回复里提到、可按需取回的本机媒体文件。
+ * 只出现在 `role = agent`；`artifactId` 只在手机点过（`fetchFile`）之后才有。
+ */
+export type BusMessageFileRef = {
+  /** Mac / Windows 上的绝对真实路径，`fetchFile` 原样带回。 */
+  path: string;
+  name: string;
+  contentType: string;
+  /** 原文件字节数。 */
+  size: number;
+  artifactId?: string;
+};
+
 export type BusMessage = {
   id: string;
   role: "user" | "agent" | "tool";
   text: string;
   createdAt: string;
+  /** 协议 2.9：Agent 回复里提到本机文件，最多 4 个。 */
+  files?: BusMessageFileRef[];
 };
 
 export type BusTaskMessages = {
@@ -57,14 +91,30 @@ export type BusModelOption = {
   defaultEffort?: string;
 };
 
+/** 协议 `ConnectorKind` 的全集；ACP 用 connectorId 区分具体 agent。 */
+export type ListedAgentKind =
+  | "codex"
+  | "claude"
+  | "hermes"
+  | "pi"
+  | "openclaw"
+  | "acp"
+  | "dsh";
+
 export type ListedAgent = {
   id: string;
-  kind: "acp" | "dsh";
+  kind: ListedAgentKind;
   name: string;
   available: boolean;
   enabled: boolean;
   lastError?: string;
+  /** 一档探测明确给出的健康度；缺省时按 available / lastError 推导。 */
+  status?: "ok" | "degraded" | "error";
   models?: BusModelOption[];
+  /** 协议 3.3：能不能给项目开自动批准；只写 true。 */
+  canAutoApprove?: boolean;
+  /** 协议 3.8：能不能永久删除电脑端会话；只写 true。 */
+  canDeleteTasks?: boolean;
 };
 
 export type BusProject = {
@@ -123,6 +173,8 @@ export class TaskStore {
   private persistPath: string | undefined;
   private persistTimer: NodeJS.Timeout | undefined;
   private persistChain: Promise<void> = Promise.resolve();
+  /** 协议 3.8：被手机移出列表的项目。惰性创建，避免 import 时读真实用户目录。 */
+  private projectDismissals: ProjectDismissals | undefined;
   private readonly waiters = new Set<() => void>();
   private readonly listeners = new Set<Listener>();
 
@@ -146,6 +198,19 @@ export class TaskStore {
   /** 启动时接上本机持久化；未配置时所有保存都是 no-op。 */
   configurePersistence(path: string) {
     this.persistPath = path;
+  }
+
+  private dismissals(): ProjectDismissals {
+    if (!this.projectDismissals) this.projectDismissals = new ProjectDismissals();
+    return this.projectDismissals;
+  }
+
+  /**
+   * 换 `removed-projects.json` 的位置并重读；`path` 省略时看
+   * `AGENT_HOST_REMOVED_PROJECTS` / 默认目录（测试用）。
+   */
+  configureProjectDismissals(path?: string) {
+    this.dismissals().configurePath(path);
   }
 
   /**
@@ -225,6 +290,13 @@ export class TaskStore {
 
   snapshot(): Record<string, unknown> {
     const now = new Date().toISOString();
+    // 协议 3.8：被移出的项目及其全部来源会话只从手机可见面消失，
+    // 任务本身仍留在 store 里（所有权、历史与产物都不变）。
+    const dismissals = this.dismissals();
+    const visibleTasks = this.tasks.filter((task) => !dismissals.hides(task));
+    const visibleProjects = this.projects.filter(
+      (project) => !dismissals.hidesProject(project.agentId, project.path),
+    );
     return {
       agents: [
         {
@@ -239,25 +311,33 @@ export class TaskStore {
             displayName: agent.name,
             available: agent.available,
             enabled: agent.enabled,
-            status: agent.lastError && agent.available ? "error" : agent.available ? "ok" : "degraded",
-            taskCount: this.tasks.filter((task) =>
-              agent.kind === "dsh"
-                ? task.source === "dsh"
-                : task.source === "acp" && task.connectorId === agent.id,
+            status:
+              agent.status ??
+              (agent.lastError && agent.available ? "error" : agent.available ? "ok" : "degraded"),
+            taskCount: visibleTasks.filter((task) =>
+              agent.kind === "acp"
+                ? task.source === "acp" && task.connectorId === agent.id
+                : task.source === agent.kind,
             ).length,
             ...(agent.lastError ? { lastError: agent.lastError } : {}),
             ...(agent.kind === "acp" ? { connectorId: agent.id } : {}),
             ...(agent.models?.length ? { models: agent.models } : {}),
+            ...(agent.canAutoApprove ? { canAutoApprove: true } : {}),
+            ...(agent.canDeleteTasks ? { canDeleteTasks: true } : {}),
           })),
           capabilities: {
             remoteControl: false,
             previews: false,
             fetchChanges: false,
           },
+          // 协议 3.8 的移出项目能力；只写 true。
+          canRemoveProjects: true,
+          // 运行时实现了 restartConnector；协议 3.9 只写 true。
+          canRestartConnectors: true,
         },
       ],
-      tasks: this.tasks,
-      projects: this.projects.slice(0, MAX_PROJECTS),
+      tasks: visibleTasks,
+      projects: visibleProjects.slice(0, MAX_PROJECTS),
       recentResults: this.recentResults,
       recentMessages: [],
       seq: this.seq,
@@ -303,13 +383,61 @@ export class TaskStore {
     }
   }
 
-  upsertTask(task: BusTask) {
+  /**
+   * `publish = false` 只写入（并落盘），不发 `taskUpdated`。ACP 对账的第一次
+   * 列表是通知基线，不是变化；逐条推送会把几十条历史会话当成新任务发到手机上。
+   */
+  upsertTask(task: BusTask, publish = true) {
     const rest = this.tasks.filter((item) => item.id !== task.id);
     this.tasks = [task, ...rest]
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .slice(0, MAX_TASKS);
+    // 协议 3.8：新会话 / 新活动可以让被移出的项目重新可见。上游在保存失败时
+    // 只忽略（`try?`），内存状态仍然生效。
+    const dismissals = this.dismissals();
+    const restored = dismissals.reconcile([task]);
+    if (restored) dismissals.save();
     this.schedulePersist();
-    this.publish({ kind: "taskUpdated", task });
+    if (publish && !dismissals.hides(task)) this.publish({ kind: "taskUpdated", task });
+    // 恢复是可见性变化：即使这次 upsert 处于静默基线（publish=false），也要
+    // 补一份全量快照，让被移出的项目与任务重新出现（对齐上游事件）。
+    if (restored) this.publish({ kind: "snapshot" });
+  }
+
+  /**
+   * 协议 3.8：从手机列表移出项目及其全部来源会话。
+   *
+   * 对齐上游 `TaskStore.removeProject(path:)`：路径先归一化；已经隐藏则直接
+   * 成功；项目（或只由任务派生出的项目）不存在、或只在不属于项目的位置时
+   * 抛 "本机没有这个项目"；持久化失败回滚内存并抛错；成功后发一次全量快照。
+   * 不删任务、目录、源码、worktree、会话记录或产物。
+   */
+  removeProject(rawPath: string) {
+    const agentId = this.identity.agentId;
+    const path = normalizeProjectPath(rawPath);
+    if (!path) throw new Error("本机没有这个项目");
+    const dismissals = this.dismissals();
+    if (dismissals.hidesProject(agentId, path)) return;
+    const related = this.tasks.filter(
+      (task) =>
+        task.agentId === agentId &&
+        task.outsideProject !== true &&
+        normalizeProjectPath(task.projectPath) === path,
+    );
+    const project = this.projects.find(
+      (item) => normalizeProjectPath(item.path) === path,
+    );
+    if (!project && related.length === 0) throw new Error("本机没有这个项目");
+    const lastUsedAt =
+      project?.lastUsedAt ??
+      related.reduce((latest, task) => (task.updatedAt > latest ? task.updatedAt : latest), "");
+    const previous = dismissals.snapshot();
+    dismissals.dismissProject(agentId, path, related, lastUsedAt);
+    if (!dismissals.save()) {
+      dismissals.restore(previous);
+      throw new Error("无法保存已移出的项目记录");
+    }
+    this.publish({ kind: "snapshot" });
   }
 
   removeTask(taskId: string) {
@@ -346,6 +474,8 @@ export class TaskStore {
     this.agents = [];
     this.messages.clear();
     this.sessions.clear();
+    // 只清内存；removed-projects.json 与已配置的路径都保留。
+    this.projectDismissals?.reset();
     if (this.persistTimer) clearTimeout(this.persistTimer);
     this.persistTimer = undefined;
     this.persistPath = undefined;

@@ -4,10 +4,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { discoverAgents } from "../../src/connectors/discover.js";
+import type { DedicatedDescriptor, DedicatedKind } from "../../src/connectors/descriptors.js";
 import { belongsToNpmPackage } from "../../src/connectors/locate.js";
 import type { RegistryEntry } from "../../src/connectors/registry.js";
 
 const missing = () => undefined;
+
+function dedicated(kind: DedicatedKind, available: boolean): DedicatedDescriptor {
+  return {
+    kind,
+    id: kind,
+    name: { codex: "Codex", claude: "Claude Code", hermes: "Hermes", pi: "Pi", openclaw: "OpenClaw" }[kind],
+    ...(available ? { executable: `C:/tools/${kind}.cmd` } : {}),
+    available,
+    enabled: true,
+    origin: "dedicated",
+    status: available ? "ok" : "degraded",
+  };
+}
 
 test("a manifest is found and a missing registry binary is not", async () => {
   const dir = await mkdtemp(join(tmpdir(), "agent-host-agents-"));
@@ -25,6 +39,7 @@ test("a manifest is found and a missing registry binary is not", async () => {
     entries,
     locate: (name) => (name === "my-agent" ? "C:/tools/my-agent.cmd" : undefined),
     dshExecutable: "",
+    descriptors: [],
   });
   assert.equal(found.problems.length, 1);
   assert.match(found.problems[0].reason, /已被占用/);
@@ -44,6 +59,7 @@ test("an npm registry entry must live inside its package", async () => {
     entries,
     locate: () => "C:/tools/gemini.cmd",
     dshExecutable: "",
+    descriptors: [],
   });
   assert.equal(skipped.agents.some((agent) => agent.id === "gemini"), false);
   assert.equal(
@@ -61,6 +77,7 @@ test("dsh is discovered from an explicit executable", async () => {
     entries: [],
     locate: missing,
     dshExecutable: "C:/tools/dsh.cmd",
+    descriptors: [],
   });
   const dsh = found.agents.find((agent) => agent.kind === "dsh");
   assert.equal(dsh?.available, true);
@@ -79,10 +96,60 @@ test("only ten ACP agents are kept, in name order", async () => {
     entries,
     locate: (name) => `C:/tools/${name}`,
     dshExecutable: "",
+    descriptors: [],
   });
   const acp = found.agents.filter((agent) => agent.kind === "acp");
   assert.equal(acp.length, 10);
   assert.equal(acp[0].id, "agent-0");
   assert.equal(acp.some((agent) => agent.id === "agent-10"), false);
   assert.equal(found.agents.at(-1)?.id, "dsh");
+});
+
+test("an available dedicated connector hides its ACP adapter", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "agent-host-agents-"));
+  await writeFile(
+    join(dir, "codex-acp-local.json"),
+    JSON.stringify({ id: "codex-acp-local", name: "Codex", command: "codex-acp-local" }),
+  );
+  await writeFile(
+    join(dir, "claude-code.json"),
+    JSON.stringify({ id: "claude-code", name: "Claude Code", command: "claude-code" }),
+  );
+  await writeFile(
+    join(dir, "gemini.json"),
+    JSON.stringify({ id: "gemini", name: "Gemini CLI", command: "gemini" }),
+  );
+  const found = await discoverAgents({
+    manifestDir: dir,
+    entries: [],
+    locate: (name) => `C:/tools/${name}.cmd`,
+    dshExecutable: "",
+    descriptors: [dedicated("codex", true), dedicated("claude", true)],
+  });
+  const acp = found.agents.filter((agent) => agent.kind === "acp");
+  assert.deepEqual(acp.map((agent) => agent.id), ["gemini"]);
+  assert.equal(found.agents.some((agent) => agent.kind === "codex" && agent.available), true);
+  assert.equal(found.agents.some((agent) => agent.kind === "claude" && agent.available), true);
+});
+
+test("an unavailable dedicated connector leaves its ACP adapter listed", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "agent-host-agents-"));
+  await writeFile(
+    join(dir, "codex-acp-local.json"),
+    JSON.stringify({ id: "codex-acp-local", name: "Codex", command: "codex-acp-local" }),
+  );
+  await writeFile(
+    join(dir, "gemini.json"),
+    JSON.stringify({ id: "gemini", name: "Gemini CLI", command: "gemini" }),
+  );
+  const found = await discoverAgents({
+    manifestDir: dir,
+    entries: [],
+    locate: (name) => `C:/tools/${name}.cmd`,
+    dshExecutable: "",
+    descriptors: [dedicated("codex", false)],
+  });
+  const acp = found.agents.filter((agent) => agent.kind === "acp");
+  assert.deepEqual(acp.map((agent) => agent.id), ["codex-acp-local", "gemini"]);
+  assert.equal(found.agents.some((agent) => agent.kind === "codex" && agent.available), false);
 });

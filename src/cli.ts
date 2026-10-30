@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { loadCommandLog, setCommandLogPath } from "./bus/commands.js";
 import { loadBusState } from "./bus/persistence.js";
 import { busStore, hostPlatform } from "./bus/store.js";
-import { refreshAgents } from "./connectors/runtime.js";
+import { flushConnectorSettings, refreshAgents } from "./connectors/runtime.js";
 import {
   checkRelayHealth,
   ensureAgentId,
@@ -70,6 +70,7 @@ program
       if (stopping) return;
       stopping = true;
       try {
+        await flushConnectorSettings();
         await busStore.flushPersistence();
       } finally {
         client.stop();

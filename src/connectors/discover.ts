@@ -1,6 +1,11 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { hostDataDir } from "../config.js";
+import {
+  dedicatedDescriptors,
+  type DedicatedDescriptor,
+  type DedicatedKind,
+} from "./descriptors.js";
 import { belongsToNpmPackage, locateBinary } from "./locate.js";
 import { registryEntries, type RegistryEntry } from "./registry.js";
 
@@ -20,17 +25,21 @@ export const RESERVED_IDS = new Set([
 
 const ID_PATTERN = /^[a-z0-9-]{1,32}$/;
 
+export type AgentKind = "acp" | "dsh" | DedicatedKind;
+
 export type AgentSpec = {
   id: string;
-  kind: "acp" | "dsh";
+  kind: AgentKind;
   name: string;
   executable?: string;
   args: string[];
   env: Record<string, string>;
-  origin: "manifest" | "registry" | "dsh";
+  origin: "manifest" | "registry" | "dsh" | "dedicated";
   available: boolean;
   enabled: boolean;
   lastError?: string;
+  /** 一档探测给出的健康度；未提供时由 store 按 available / lastError 推导。 */
+  status?: "ok" | "degraded" | "error";
 };
 
 export type ManifestProblem = { file: string; reason: string };
@@ -41,6 +50,8 @@ export type DiscoverInput = {
   locate?: (name: string) => string | undefined;
   hiddenRegistryIds?: ReadonlySet<string>;
   dshExecutable?: string;
+  /** 注入一档探测结果（测试用）；不提供时探测本机。 */
+  descriptors?: DedicatedDescriptor[];
 };
 
 export function agentsDir() {
@@ -78,7 +89,9 @@ export async function discoverAgents(input: DiscoverInput = {}): Promise<{
   }
 
   for (const entry of input.entries ?? registryEntries) {
-    if (byId.has(entry.id) || hidden.has(entry.id)) continue;
+    // 一档连接器（以及它们的 ACP 适配器）已经由 descriptors 代表；
+    // 注册表里再出现同名条目会变成同一来源的第二张卡片。
+    if (byId.has(entry.id) || hidden.has(entry.id) || RESERVED_IDS.has(entry.id)) continue;
     const executable = locateEntry(entry, locate);
     if (!executable) continue;
     byId.set(entry.id, {
@@ -94,7 +107,15 @@ export async function discoverAgents(input: DiscoverInput = {}): Promise<{
     });
   }
 
+  // 一档连接器装好后，同一 Agent 的 ACP 适配器不再并列显示（FR-14.10.3 验收）。
+  // 只在一档真的可用时隐藏；一档不可用时适配器仍是用户唯一能用的入口。
+  const descriptors = input.descriptors ?? dedicatedDescriptors();
+  const dedicated = descriptors.filter((item) => !byId.has(item.id)).map(dedicatedSpec);
+  const replaceable = new Set(
+    dedicated.filter((item) => item.available).map((item) => item.kind),
+  );
   const acp = [...byId.values()]
+    .filter((agent) => !isAdapterReplacedByDedicated(agent, replaceable))
     .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id))
     .slice(0, MAX_ACP_AGENTS);
   const dshPath = input.dshExecutable === undefined ? locate("dsh") : input.dshExecutable || undefined;
@@ -110,7 +131,52 @@ export async function discoverAgents(input: DiscoverInput = {}): Promise<{
     enabled: true,
     lastError: dshPath ? undefined : "dsh is not installed",
   };
-  return { agents: [...acp, dsh], problems };
+  return { agents: [...acp, dsh, ...dedicated], problems };
+}
+
+/**
+ * 同一个 Agent 的 ACP 适配器：注册表 id（`codex-acp`）、清单 id
+ * （`codex-acp-local`、`claude-code`）或显示名（`Codex`、`Claude Code`）。
+ * 只在一档可用时隐藏，避免把用户的适配器入口一起吞掉。
+ */
+function isAdapterReplacedByDedicated(
+  agent: AgentSpec,
+  kinds: ReadonlySet<string>,
+): boolean {
+  const kind = adapterKindFor(agent);
+  return kind !== undefined && kinds.has(kind);
+}
+
+function adapterKindFor(agent: AgentSpec): DedicatedKind | undefined {
+  const id = agent.id.toLowerCase();
+  const match = /^(codex|claude|hermes|pi|openclaw)[-_](acp|code)/.exec(id);
+  if (match) return match[1] as DedicatedKind;
+  const name = agent.name.trim().toLowerCase();
+  const byName: Record<string, DedicatedKind> = {
+    codex: "codex",
+    claude: "claude",
+    "claude code": "claude",
+    hermes: "hermes",
+    pi: "pi",
+    openclaw: "openclaw",
+  };
+  return byName[name];
+}
+
+function dedicatedSpec(descriptor: DedicatedDescriptor): AgentSpec {
+  return {
+    id: descriptor.id,
+    kind: descriptor.kind,
+    name: descriptor.name,
+    ...(descriptor.executable ? { executable: descriptor.executable } : {}),
+    args: [],
+    env: {},
+    origin: "dedicated",
+    available: descriptor.available,
+    enabled: descriptor.enabled,
+    ...(descriptor.lastError ? { lastError: descriptor.lastError } : {}),
+    status: descriptor.status,
+  };
 }
 
 function locateEntry(entry: RegistryEntry, locate: (name: string) => string | undefined) {

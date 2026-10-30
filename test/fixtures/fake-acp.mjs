@@ -1,3 +1,4 @@
+import { appendFileSync, readFileSync } from "node:fs";
 import readline from "node:readline";
 
 const rl = readline.createInterface({ input: process.stdin });
@@ -19,10 +20,39 @@ rl.on("line", (line) => {
       id: message.id,
       result: {
         protocolVersion: version,
-        agentCapabilities: { loadSession: true },
-        promptCapabilities: { image: false },
+        agentCapabilities: {
+          loadSession: true,
+          ...(process.env.FAKE_ACP_LIST === "1"
+            ? { sessionCapabilities: { list: {} } }
+            : {}),
+        },
+        promptCapabilities: { image: process.env.FAKE_ACP_IMAGE === "1" },
       },
     });
+    return;
+  }
+  if (message.method === "session/list") {
+    if (process.env.FAKE_ACP_LIST_CALLS) {
+      try {
+        appendFileSync(process.env.FAKE_ACP_LIST_CALLS, "x");
+      } catch {
+        // 计数文件写不了不影响协议行为。
+      }
+    }
+    if (process.env.FAKE_ACP_LIST_ERROR === "1") {
+      send({ jsonrpc: "2.0", id: message.id, error: { code: -32603, message: "list failed" } });
+      return;
+    }
+    let result = { sessions: [] };
+    const file = process.env.FAKE_ACP_LIST_FILE;
+    if (file) {
+      try {
+        result = JSON.parse(readFileSync(file, "utf8"));
+      } catch {
+        result = { sessions: [] };
+      }
+    }
+    send({ jsonrpc: "2.0", id: message.id, result });
     return;
   }
   if (message.method === "session/new") {
@@ -36,7 +66,9 @@ rl.on("line", (line) => {
   }
   if (message.method === "session/prompt") {
     promptId = message.id;
-    const text = (message.params.prompt ?? []).map((block) => block.text ?? "").join("");
+    const blocks = message.params.prompt ?? [];
+    const text = blocks.map((block) => block.text ?? "").join("");
+    const images = blocks.filter((block) => block.type === "image");
     if (text.includes("CRASH")) {
       process.stderr.write("fake crash\n");
       process.exit(1);
@@ -62,7 +94,11 @@ rl.on("line", (line) => {
       });
       return;
     }
-    const reply = text.startsWith("ECHO:") ? text.slice(5) : "已完成";
+    const reply =
+      (text.startsWith("ECHO:") ? text.slice(5) : "已完成") +
+      (images.length > 0
+        ? `|images=${images.map((block) => `${block.mimeType}:${Buffer.from(block.data, "base64").length}`).join(",")}`
+        : "");
     send({
       jsonrpc: "2.0",
       method: "session/update",
