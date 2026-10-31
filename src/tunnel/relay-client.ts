@@ -4,6 +4,12 @@ import { WebSocket } from "ws";
 import { openBusWebSocket } from "../bus/socket.js";
 import { isBusPath, routeBus, type BusResponse } from "../bus/router.js";
 import { hostPlatform, busStore } from "../bus/store.js";
+import {
+  cookieHeader,
+  cookieName,
+  loadBrowserSessionSecret,
+} from "../connectors/dsh/auth.js";
+import { dshPaths } from "../connectors/dsh/paths.js";
 import { Config, createAgentId, ensureAgentId } from "../config.js";
 import { PLUGIN_VERSION } from "./version.js";
 import {
@@ -74,6 +80,35 @@ export function probeDsh(port: number, timeoutMs = DSH_PROBE_TIMEOUT_MS): Promis
     request.on("error", () => finish(false));
     request.end();
   });
+}
+
+/**
+ * 给转发到 dsh web 的请求加签名 Cookie。
+ *
+ * 已有同名 cookie 时替换，其他 cookie 保留；没有密钥时原样返回，
+ * 转发行为与未接鉴权时完全一致。
+ */
+export function applyDshCookie(
+  headers: Record<string, any>,
+  secret: Buffer | null,
+  authority: string,
+  nowMs = Date.now(),
+): void {
+  if (!secret) return;
+  const name = cookieName(authority);
+  const current =
+    typeof headers.cookie === "string"
+      ? headers.cookie
+      : typeof headers.Cookie === "string"
+        ? headers.Cookie
+        : "";
+  delete headers.Cookie;
+  const kept = current
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0 && !part.startsWith(`${name}=`));
+  kept.push(cookieHeader(secret, authority, nowMs));
+  headers.cookie = kept.join("; ");
 }
 
 export class HealthStatusTracker {
@@ -162,6 +197,9 @@ const liveClients = new Map<string, RelayClient>();
 export class RelayClient {
   private ws?: WebSocket;
   private stopped = false;
+  /** dsh web 的浏览器会话签名密钥；读不到时为 null，转发保持无 Cookie。 */
+  private dshSecret: Buffer | null = null;
+  private dshSecretNextRefresh = 0;
   private authenticated = false;
   private health = false;
   private readonly healthTracker = new HealthStatusTracker();
@@ -192,6 +230,7 @@ export class RelayClient {
   async start() {
     this.stopped = false;
     this.occupySlot();
+    await this.refreshDshSecret();
     if (!this.config.agentId) {
       this.config = await ensureAgentId(this.config);
       this.agentId = this.config.agentId ?? this.agentId;
@@ -328,6 +367,16 @@ export class RelayClient {
     return this.sendOuter("sealed", { accessSessionId, ...sealed });
   }
 
+  /** 读 dsh web 的签名密钥；失败 30 秒后再试，成功 30 分钟后再读（密钥可能轮换）。 */
+  private async refreshDshSecret(): Promise<void> {
+    const now = Date.now();
+    if (now < this.dshSecretNextRefresh) return;
+    this.dshSecretNextRefresh = now + 30 * 60_000;
+    const secret = await loadBrowserSessionSecret(dshPaths());
+    if (secret) this.dshSecret = secret;
+    else this.dshSecretNextRefresh = now + 30_000;
+  }
+
   private upstreamHeaders(input: Record<string, unknown>) {
     const authority = `127.0.0.1:${this.config.dshPort}`;
     const headers: Record<string, any> = { ...input, host: authority };
@@ -340,6 +389,8 @@ export class RelayClient {
     delete headers["x-dsh-mobile-remote"];
     delete headers["x-dsh-scan-remote"];
     headers["x-dsh-scan-remote"] = "1";
+    applyDshCookie(headers, this.dshSecret, authority);
+    if (!this.dshSecret) void this.refreshDshSecret();
     return headers;
   }
 

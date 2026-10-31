@@ -106,8 +106,8 @@ async function resolveAttachmentFiles(
 }
 
 /**
- * 把手机发来的 `MessageAttachment[]` 解析成连接器认的 `ImageSource[]`。
- * 任何一张失败都会抛错（见 `resolveAttachmentFiles`），调用方原样报给手机。
+ * 把手机发来的 `MessageAttachment[]` 解析成连接器认的 `ImageSource[]`
+ * 任何一张失败都会抛错（见 `resolveAttachmentFiles`），调用方原样报给手机
  * 没有附件时返回空数组，调用方行为与之前一致。
  */
 export async function resolveImages(
@@ -120,7 +120,7 @@ export async function resolveImages(
 
 type AcpImageBlock = { type: "image"; data: string; mimeType: string };
 
-/** ACP `session/prompt` 的图片块：读本机文件、base64，带上缓存的 mimeType。 */
+/** ACP `session/prompt` 的图片块：读本机文件、base64，带上缓存的 mimeType */
 async function acpImageBlocks(attachments: readonly ResolvedAttachment[]): Promise<AcpImageBlock[]> {
   const blocks: AcpImageBlock[] = [];
   for (const item of attachments) {
@@ -128,7 +128,7 @@ async function acpImageBlocks(attachments: readonly ResolvedAttachment[]): Promi
     try {
       bytes = await readFile(item.path);
     } catch {
-      // 解析与读取之间文件被清理掉了：按“过期或不存在”处理，不静默丢图。
+      // 解析与读取之间文件被清理掉了：按“过期或不存在”处理，不静默丢图
       throw new Error(`图片已过期或不存在：${item.artifactId}`);
     }
     blocks.push({ type: "image", data: bytes.toString("base64"), mimeType: item.contentType });
