@@ -151,26 +151,37 @@ export async function saveConnectorSettings(
   path?: string,
 ): Promise<boolean> {
   const target = connectorSettingsPath(path);
-  const temp = `${target}.${process.pid}.${Date.now().toString(36)}.tmp`;
-  try {
-    await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-    const body = `${JSON.stringify(copyState(state), null, 2)}\n`;
-    await writeFile(temp, body, { encoding: "utf8", mode: 0o600 });
+  const body = `${JSON.stringify(copyState(state), null, 2)}\n`;
+  // Windows 的杀毒/索引器会短暂占用刚写好的文件，rename 偶发 EPERM/EBUSY；
+  // 同一个内容重试两次即可，没必要让一次偶发失败丢掉开关。
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const temp = `${target}.${process.pid}.${Date.now().toString(36)}.${attempt}.tmp`;
     try {
-      await chmod(temp, 0o600);
-    } catch {
-      // Windows 上 chmod 基本无效；尽力而为，不影响写入结果。
+      await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+      await writeFile(temp, body, { encoding: "utf8", mode: 0o600 });
+      try {
+        await chmod(temp, 0o600);
+      } catch {
+        // Windows 上 chmod 基本无效；尽力而为，不影响写入结果。
+      }
+      await rename(temp, target);
+      return true;
+    } catch (error) {
+      try {
+        await unlink(temp);
+      } catch {
+        // 临时文件可能根本没建出来；清理失败也不该抛。
+      }
+      if (attempt === 2 || !retryableRenameError(error)) return false;
+      await new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
     }
-    await rename(temp, target);
-    return true;
-  } catch {
-    try {
-      await unlink(temp);
-    } catch {
-      // 临时文件可能根本没建出来；清理失败也不该抛。
-    }
-    return false;
   }
+  return false;
+}
+
+function retryableRenameError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "EPERM" || code === "EBUSY" || code === "EACCES" || code === "ENOTEMPTY";
 }
 
 export type ConnectorSettingsOptions = {

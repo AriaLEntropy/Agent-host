@@ -30,8 +30,10 @@ export type DesktopResumePlatform = "posix" | "win32";
 export type DesktopResumeTask = {
   id: string;
   source: string;
-  /** 上游 `workingDirectory`：Claude / Codex 按当前目录找会话与项目配置。 */
+  /** 主仓库路径；会话在 worktree 里时用它分组，但不在它里面续。 */
   projectPath: string;
+  /** 实际工作目录；来自 `TaskRecord.workingDirectory = worktreePath ?? projectPath`。 */
+  worktreePath?: string;
   /** `source = acp` 时续的是哪个 agent；目前只有 opencode 能做终端接续。 */
   connectorId?: string;
 };
@@ -114,7 +116,8 @@ export function desktopResumeCommand(
   return {
     executable,
     arguments: args,
-    workingDirectory: task.projectPath,
+    // Claude / Codex 按当前目录找会话；worktree 会话必须回到 worktree。
+    workingDirectory: task.worktreePath?.trim() || task.projectPath,
     pathDirectories,
   };
 }

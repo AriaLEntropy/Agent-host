@@ -33,6 +33,16 @@ export type AcpSessionArchiveEntry = {
   status: string;
   startedAt: string;
   updatedAt: string;
+  /** 所属电脑；`(agentId, id)` 才是全局唯一键，重建任务时需要。 */
+  agentId?: string;
+  source?: string;
+  origin?: string;
+  controllable?: boolean;
+  connectorId?: string;
+  model?: string;
+  effort?: string;
+  /** 会话实际工作目录（协议 2.7）；续聊必须回到这里。 */
+  worktreePath?: string;
   /** 会话不在任何项目里；只有 true 或省略两种写法。 */
   outsideProject?: true;
 };
@@ -119,7 +129,14 @@ export class AcpSessionArchive {
 
   /** 记一条会话：同 id 覆盖，按 `updatedAt` 新的在前，每连接器最多 200 条。 */
   async remember(connectorId: string, record: AcpSessionArchiveInput): Promise<void> {
-    const entry = stripSessionMetadata(record);
+    let entry: AcpSessionArchiveEntry;
+    try {
+      entry = stripSessionMetadata(record);
+    } catch (error) {
+      // 上游不会因为一条畸形记录中断整轮保存；记一条脱敏日志就够了。
+      logger.warning("acp session metadata skipped", { error });
+      return;
+    }
     await this.serialize(async () => {
       await this.ensureLoaded();
       const list = (this.byConnector[connectorId] ?? []).filter((item) => item.id !== entry.id);
@@ -203,7 +220,7 @@ export function stripSessionMetadata(record: AcpSessionArchiveInput): AcpSession
       throw new TypeError(`session metadata "${field}" must be a string`);
     }
   }
-  return {
+  const entry: AcpSessionArchiveEntry = {
     id: record.id,
     title: record.title,
     projectPath: record.projectPath,
@@ -211,8 +228,28 @@ export function stripSessionMetadata(record: AcpSessionArchiveInput): AcpSession
     status: record.status,
     startedAt: record.startedAt,
     updatedAt: record.updatedAt,
-    ...(record.outsideProject === true ? { outsideProject: true as const } : {}),
   };
+  // 上游只剥对话字段；重建任务需要的身份与工作位置都保留。
+  copyString(entry, "agentId", record.agentId);
+  copyString(entry, "source", record.source);
+  copyString(entry, "origin", record.origin);
+  copyString(entry, "connectorId", record.connectorId);
+  copyString(entry, "model", record.model);
+  copyString(entry, "effort", record.effort);
+  copyString(entry, "worktreePath", record.worktreePath);
+  if (typeof record.controllable === "boolean") entry.controllable = record.controllable;
+  if (record.outsideProject === true) entry.outsideProject = true;
+  return entry;
+}
+
+function copyString<K extends keyof AcpSessionArchiveEntry>(
+  target: AcpSessionArchiveEntry,
+  key: K,
+  value: unknown,
+): void {
+  if (typeof value === "string" && value.length > 0) {
+    target[key] = value as AcpSessionArchiveEntry[K];
+  }
 }
 
 /**
@@ -262,7 +299,7 @@ function sanitizeEntry(value: unknown): AcpSessionArchiveEntry | undefined {
   for (const field of REQUIRED_FIELDS) {
     if (typeof record[field] !== "string") return undefined;
   }
-  return {
+  const entry: AcpSessionArchiveEntry = {
     id: record.id as string,
     title: record.title as string,
     projectPath: record.projectPath as string,
@@ -270,8 +307,17 @@ function sanitizeEntry(value: unknown): AcpSessionArchiveEntry | undefined {
     status: record.status as string,
     startedAt: record.startedAt as string,
     updatedAt: record.updatedAt as string,
-    ...(record.outsideProject === true ? { outsideProject: true as const } : {}),
   };
+  copyString(entry, "agentId", record.agentId);
+  copyString(entry, "source", record.source);
+  copyString(entry, "origin", record.origin);
+  copyString(entry, "connectorId", record.connectorId);
+  copyString(entry, "model", record.model);
+  copyString(entry, "effort", record.effort);
+  copyString(entry, "worktreePath", record.worktreePath);
+  if (typeof record.controllable === "boolean") entry.controllable = record.controllable;
+  if (record.outsideProject === true) entry.outsideProject = true;
+  return entry;
 }
 
 function compareNewestFirst(left: AcpSessionArchiveEntry, right: AcpSessionArchiveEntry): number {

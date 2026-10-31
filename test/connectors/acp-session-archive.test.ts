@@ -71,6 +71,38 @@ test("remember stores metadata only and leaves no temp file behind", async () =>
   }
 });
 
+test("identity and working location survive; only conversation fields are stripped", async () => {
+  const dir = await tempDir();
+  try {
+    const archive = new AcpSessionArchive({ path: join(dir, "acp-sessions.json"), now: () => NOW });
+    const input = session({
+      agentId: "agent_1",
+      source: "acp",
+      origin: "phone",
+      controllable: true,
+      connectorId: "gemini",
+      model: "gemini-2.5",
+      effort: "high",
+      worktreePath: "C:\\work\\demo\\.claude\\worktrees\\feature",
+      lastMessage: "secret",
+    });
+    await archive.remember("gemini", input);
+
+    const [record] = await archive.records("gemini");
+    assert.equal(record?.agentId, "agent_1");
+    assert.equal(record?.source, "acp");
+    assert.equal(record?.origin, "phone");
+    assert.equal(record?.controllable, true);
+    assert.equal(record?.connectorId, "gemini");
+    assert.equal(record?.model, "gemini-2.5");
+    assert.equal(record?.effort, "high");
+    assert.equal(record?.worktreePath, "C:\\work\\demo\\.claude\\worktrees\\feature");
+    assert.equal("lastMessage" in (record ?? {}), false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("remember replaces the same session id and keeps the newest first", async () => {
   const dir = await tempDir();
   try {
@@ -194,14 +226,13 @@ test("a corrupt or misshapen archive file starts empty and is replaced on save",
   }
 });
 
-test("malformed input is rejected instead of writing a half-empty record", async () => {
+test("malformed input is skipped without writing a half-empty record", async () => {
   const dir = await tempDir();
   try {
     const archive = new AcpSessionArchive({ path: join(dir, "acp-sessions.json"), now: () => NOW });
-    await assert.rejects(
-      archive.remember("gemini", { ...session(), title: undefined as unknown as string }),
-      TypeError,
-    );
+    await archive.remember("gemini", { ...session(), title: undefined as unknown as string });
+    assert.deepEqual(await archive.records("gemini"), []);
+    assert.equal((await readdir(dir)).length, 0, "a rejected record must not touch disk");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

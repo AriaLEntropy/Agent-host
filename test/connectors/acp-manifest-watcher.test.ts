@@ -76,6 +76,31 @@ test("scan reports added, changed and removed manifests without firing the callb
   }
 });
 
+test("a manual scan while polling joins the debounce window instead of swallowing it", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "agent-host-acp-watch-"));
+  const seen = collector();
+  const watcher = new AcpManifestWatcher({
+    directory: dir,
+    pollIntervalMs: 60_000,
+    debounceMs: 30,
+    onChange: seen.onChange,
+  });
+  try {
+    await watcher.start();
+    await writeFile(join(dir, "c.json"), '{"id":"c"}');
+    assert.deepEqual(await watcher.scan(), {
+      added: ["c.json"],
+      changed: [],
+      removed: [],
+    });
+    const change = await seen.next(1000);
+    assert.deepEqual(change.added, ["c.json"]);
+  } finally {
+    watcher.stop();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("start creates the directory and coalesces new manifests into one callback", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-host-acp-watch-"));
   const dir = join(root, "agents");

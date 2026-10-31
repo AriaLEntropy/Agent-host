@@ -148,6 +148,19 @@ test("an aborted signal yields no conclusion", async () => {
   assert.equal(await probe.diagnose(""), null);
 });
 
+test("aborting an in-flight read is reported as cancelled, not timed out", async () => {
+  const probe = macProbe(
+    () => new Promise<DirectoryAccess>(() => undefined),
+    { timeoutMs: 5000 },
+  );
+  const controller = new AbortController();
+  const pending = probe.inspect("/work/demo", { signal: controller.signal });
+  controller.abort();
+  const result = await pending;
+  assert.equal(result.status, "indeterminate");
+  assert.match(result.reason ?? "", /取消/);
+});
+
 test("fs error codes map like the upstream Cocoa / POSIX pairing", () => {
   assert.equal(DirectoryProbe.accessFromError(Object.assign(new Error("x"), { code: "EPERM" })), "denied");
   assert.equal(DirectoryProbe.accessFromError(Object.assign(new Error("x"), { code: "EACCES" })), "unreadable");

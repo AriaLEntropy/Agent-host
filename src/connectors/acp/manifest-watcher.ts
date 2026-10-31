@@ -106,7 +106,8 @@ export class AcpManifestWatcher {
     this.generation += 1;
     await this.ensureDirectory();
     if (!this.running) return;
-    await this.scan();
+    // 启动时只取基线，不把目录里已有的清单当成「新增」播一遍。
+    await this.compare();
     if (!this.running) return;
     this.timer = setInterval(() => {
       void this.poll();
@@ -132,11 +133,14 @@ export class AcpManifestWatcher {
   }
 
   /**
-   * 立刻比一次快照并更新基线，返回这次的变化；**不触发回调**、不影响去抖窗口。
-   * 给测试与「启动时先拿一份现状」用。
+   * 立刻比一次快照并更新基线，返回这次的变化。没在轮询时只返回、不回调
+   * （给测试和启动基线用）；正在轮询时把变化并进同一个去抖窗口，避免
+   * 手动 scan 把定时轮询本该上报的变化悄悄吃掉。
    */
-  scan(): Promise<AcpManifestChange> {
-    return this.compare();
+  async scan(): Promise<AcpManifestChange> {
+    const change = await this.compare();
+    if (this.running && this.merge(change)) this.scheduleFlush();
+    return change;
   }
 
   private compare(): Promise<AcpManifestChange> {

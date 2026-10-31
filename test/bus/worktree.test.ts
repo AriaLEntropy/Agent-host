@@ -187,6 +187,15 @@ describe("worktree resolver (protocol 2.7 / 3.4)", () => {
     assert.equal(await resolver.projectRootAsync(fakeRoot), null);
   });
 
+  test("async resolution falls back to the .git file when git does not list it", async () => {
+    const root = tempDir("wt-async-fallback");
+    const fake = fakeGitDir(root, "feature");
+    const resolver = new WorktreeResolver({
+      git: async () => ({ code: 0, stdout: "", stderr: "" }),
+    });
+    assert.equal(samePath(await resolver.projectRootAsync(fake.worktree), fake.root), true);
+  });
+
   test("a real git worktree maps to the main repository and keeps subdirectories", async (t) => {
     if (!GIT_AVAILABLE) {
       t.skip("git is not available");
@@ -319,9 +328,10 @@ describe("worktree resolver (protocol 2.7 / 3.4)", () => {
     assert.equal(new WorktreeResolver().projectRoot(elsewhere), null);
   });
 
-  test("the archive keeps only the most recent entries", () => {
+  test("the archive caps entries and reloads the cap from disk", () => {
     const root = tempDir("wt-cap");
-    const resolver = new WorktreeResolver({ maxArchivedEntries: 2 });
+    const archivePath = join(root, "worktrees.json");
+    const resolver = new WorktreeResolver({ maxArchivedEntries: 2, archivePath });
     const first = fakeGitDir(root, "a");
     const second = fakeGitDir(root, "b");
     const third = fakeGitDir(root, "c");
@@ -332,6 +342,13 @@ describe("worktree resolver (protocol 2.7 / 3.4)", () => {
     assert.equal(paths.length, 2);
     assert.equal(platformPath.same(paths[0] ?? "", second.worktree), true);
     assert.equal(platformPath.same(paths[1] ?? "", third.worktree), true);
+
+    // 重启后从 worktrees.json 读回来的仍是剪过的两条。
+    const reloaded = new WorktreeResolver({ maxArchivedEntries: 2, archivePath });
+    const reloadedPaths = reloaded.entries().map((entry) => entry.path);
+    assert.equal(reloadedPaths.length, 2);
+    assert.equal(platformPath.same(reloadedPaths[0] ?? "", second.worktree), true);
+    assert.equal(platformPath.same(reloadedPaths[1] ?? "", third.worktree), true);
   });
 
   test("remember and forget update the mapping", () => {

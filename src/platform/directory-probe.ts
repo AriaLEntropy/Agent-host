@@ -151,15 +151,15 @@ export class DirectoryProbe {
 
     let timer: NodeJS.Timeout | undefined;
     let onAbort: (() => void) | undefined;
-    const timedOut = new Promise<"timeout">((resolve) => {
+    const timedOut = new Promise<"timeout" | "aborted">((resolve) => {
       timer = setTimeout(() => resolve("timeout"), Math.max(0, this.timeoutMs));
       if (options.signal) {
-        onAbort = () => resolve("timeout");
+        onAbort = () => resolve("aborted");
         options.signal.addEventListener("abort", onAbort);
       }
     });
 
-    let outcome: DirectoryAccess | null | "timeout";
+    let outcome: DirectoryAccess | null | "timeout" | "aborted";
     try {
       outcome = await Promise.race([reading, timedOut]);
     } finally {
@@ -190,6 +190,9 @@ export class DirectoryProbe {
           status: "indeterminate",
           reason: `读目录超过 ${this.timeoutMs} 毫秒，不下结论`,
         };
+      case "aborted":
+        // 取消不是超时：别让调用方把「用户关掉了页面」当成「目录读得慢」。
+        return { supported: true, status: "indeterminate", reason: "检查已取消，不下结论" };
       default:
         return { supported: true, status: "indeterminate", reason: "判断不了这个目录" };
     }

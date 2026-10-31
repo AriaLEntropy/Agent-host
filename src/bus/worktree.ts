@@ -525,15 +525,15 @@ export class WorktreeResolver {
       this.record(path, result.root);
       return result.root;
     }
-    if (result.status === "unavailable") {
-      // Git missing or the directory is not a repository yet: the `.git` file
-      // path still works for Codex-style worktrees and is cheap to try.
-      const root = resolveOnDisk(path);
-      if (root) {
-        this.misses.delete(path);
-        this.record(path, root);
-        return root;
-      }
+    // Git missing, not a repository, or a spelling git does not echo back
+    // (symlinked ancestor, Windows short name, mapped drive): the `.git`
+    // file path still works for Codex-style worktrees. The sync resolver
+    // already had this fallback; keep both entry points consistent.
+    const root = resolveOnDisk(path);
+    if (root) {
+      this.misses.delete(path);
+      this.record(path, root);
+      return root;
     }
     const exists = existsSync(path);
     this.misses.set(path, { retryAt: this.now().getTime() + this.missRetryIntervalMs, exists });

@@ -33,6 +33,23 @@ test("Codex resumes with the resume subcommand", () => {
   assert.deepEqual(command?.pathDirectories, [], "不把 App 包的 Resources 塞进 PATH");
 });
 
+test("worktree sessions resume in the worktree, not the main repository", () => {
+  const command = desktopResumeCommand(
+    task("claude:s1", "claude", {
+      projectPath: "/Users/me/main",
+      worktreePath: "/Users/me/main/.claude/worktrees/feature",
+    }),
+    "/bin/claude",
+  );
+  assert.equal(command?.workingDirectory, "/Users/me/main/.claude/worktrees/feature");
+  // 空白的 worktreePath 退回主仓库，不生成空目录。
+  const fallback = desktopResumeCommand(
+    task("claude:s2", "claude", { projectPath: "/Users/me/main", worktreePath: "  " }),
+    "/bin/claude",
+  );
+  assert.equal(fallback?.workingDirectory, "/Users/me/main");
+});
+
 test("Hermes, Pi and OpenClaw keep their node next to the script on PATH", () => {
   const hermes = desktopResumeCommand(
     task("hermes:h1", "hermes"),
