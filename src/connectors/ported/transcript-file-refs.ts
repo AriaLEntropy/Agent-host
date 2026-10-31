@@ -25,11 +25,11 @@ import {
   extname,
   isAbsolute,
   join,
-  parse,
   relative,
   resolve as resolvePath,
   sep,
 } from "node:path";
+import { platformPath } from "../../platform/path.js";
 
 /** 上游 `TranscriptFileRefs.extensions`。 */
 export const MEDIA_EXTENSIONS: ReadonlySet<string> = new Set([
@@ -314,9 +314,9 @@ async function currentHome(): Promise<string> {
  */
 export function isAcceptableProjectRoot(realRoot: string, home: string): boolean {
   if (!isAbsolute(realRoot)) return false;
-  if (isRootPath(realRoot)) return false;
+  if (platformPath.isRoot(realRoot)) return false;
   return ![...broadRoots(), home].some(
-    (forbidden) => isSamePath(forbidden, realRoot) || isInside(forbidden, realRoot),
+    (forbidden) => platformPath.same(forbidden, realRoot) || platformPath.isInside(forbidden, realRoot),
   );
 }
 
@@ -368,21 +368,18 @@ async function validateUnder(raw: string, root: string): Promise<ResolvedFileRef
 }
 
 function normalizeForCompare(value: string): string {
-  const stripped = value.replace(/[\\/]+$/u, "");
-  return process.platform === "win32" ? stripped.toLowerCase() : stripped;
+  return value.replace(/[\\/]+$/u, "");
 }
 
 function isSamePath(left: string, right: string): boolean {
-  return normalizeForCompare(left) === normalizeForCompare(right);
+  return platformPath.same(normalizeForCompare(left), normalizeForCompare(right));
 }
 
 /** `child` 是否在 `root` 里面（按路径组件，不按字符串前缀）。 */
 function isInside(child: string, root: string): boolean {
-  const rel = relative(root, child);
-  return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+  return platformPath.isInside(normalizeForCompare(child), normalizeForCompare(root));
 }
 
 function isRootPath(value: string): boolean {
-  const resolved = resolvePath(value);
-  return resolved === parse(resolved).root;
+  return platformPath.isRoot(value);
 }

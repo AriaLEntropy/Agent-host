@@ -16,6 +16,7 @@ import {
   probeExitCode,
 } from "./connectors/probe.js";
 import { flushConnectorSettings, refreshAgents } from "./connectors/runtime.js";
+import { connectorSettingsPath } from "./connectors/settings-store.js";
 import {
   checkRelayHealth,
   ensureAgentId,
@@ -24,11 +25,21 @@ import {
   requireRelayConfig,
   saveConfig,
 } from "./config.js";
+import {
+  createLogger,
+  defaultLogDirectory,
+  exportDiagnostics,
+  initializeLogging,
+  logPublic,
+  shutdownLogging,
+} from "./platform/log.js";
 import { pair } from "./tunnel/pairing.js";
 import { RelayClient } from "./tunnel/relay-client.js";
 import { PLUGIN_VERSION } from "./tunnel/version.js";
 
 async function prepare() {
+  // 日志初始化失败不能挡住启动：文件出口失败时退回 stderr。
+  await initializeLogging().catch(() => undefined);
   setCommandLogPath(join(hostDataDir(), "commands.json"));
   await loadCommandLog();
   const config = await ensureAgentId(await loadConfig());
@@ -42,7 +53,12 @@ async function prepare() {
     hostVersion: PLUGIN_VERSION,
     platform: hostPlatform(),
   });
-  await refreshAgents().catch(() => undefined);
+  const found = await refreshAgents().catch(() => undefined);
+  createLogger("agent-host", "lifecycle").info("host prepared", {
+    version: logPublic(PLUGIN_VERSION),
+    platform: process.platform,
+    agents: found?.agents.length ?? 0,
+  });
   return config;
 }
 
@@ -178,6 +194,7 @@ program
       try {
         await flushConnectorSettings();
         await busStore.flushPersistence();
+        await shutdownLogging();
       } finally {
         client.stop();
         process.exit(0);
@@ -211,6 +228,32 @@ program
       agentId: config.agentId,
     });
     console.log("Pairing removed");
+  });
+
+const logsCommand = program
+  .command("logs")
+  .description("Inspect or export the local log files");
+
+logsCommand
+  .command("path")
+  .description("Print the local log directory")
+  .action(() => {
+    console.log(defaultLogDirectory());
+  });
+
+logsCommand
+  .command("export")
+  .description("Write a diagnostic bundle (logs + config without credentials)")
+  .option("--out <path>", "write the tar.gz to this path instead of the data directory")
+  .action(async (options: { out?: string }) => {
+    const config = await prepare();
+    const out = await exportDiagnostics({
+      config,
+      outPath: options.out ? resolve(options.out) : undefined,
+      extraFiles: [{ name: "connector-settings.json", path: connectorSettingsPath() }],
+    });
+    await shutdownLogging();
+    console.log(`Diagnostics written to ${out}`);
   });
 
 const agentCommand = program

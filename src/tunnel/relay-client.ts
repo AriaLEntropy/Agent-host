@@ -11,6 +11,7 @@ import {
 } from "../connectors/dsh/auth.js";
 import { dshPaths } from "../connectors/dsh/paths.js";
 import { Config, createAgentId, ensureAgentId } from "../config.js";
+import { createLogger } from "../platform/log.js";
 import { PLUGIN_VERSION } from "./version.js";
 import {
   acceptClientHello,
@@ -192,6 +193,7 @@ export function reconnectDelayMs(attempt: number, random = Math.random) {
 }
 
 const liveClients = new Map<string, RelayClient>();
+const relayLog = createLogger("agent-host", "relay");
 
 
 export class RelayClient {
@@ -330,6 +332,7 @@ export class RelayClient {
       if (this.stopped) return;
       if (code === 4003) {
         const detail = String(reason ?? "").trim();
+        relayLog.error("relay rejected the host credential", { code });
         console.log("Relay rejected the host credential; not reconnecting");
         if (detail) console.log(`Relay reason: ${detail}`);
         this.stop();
@@ -338,6 +341,7 @@ export class RelayClient {
       }
       const delay = reconnectDelayMs(this.retry++);
       const detail = String(reason ?? "").trim();
+      relayLog.warning("relay disconnected", { code, retrySeconds: delay / 1000 });
       console.log(
         `Relay disconnected (${code}${detail ? ` ${detail}` : ""}); retrying in ${delay / 1000}s`,
       );
@@ -409,6 +413,9 @@ export class RelayClient {
     if (this.stopped) return;
     const before = this.health;
     this.health = this.healthTracker.update(reachable);
+    if (before !== this.health) {
+      relayLog.notice("dsh web status", { online: this.health });
+    }
     if (before !== this.health || this.authenticated)
       this.sendOuter("status", { dsh: this.health ? "online" : "offline" });
   }
@@ -417,6 +424,7 @@ export class RelayClient {
     if (msg.type === "auth_ok") {
       this.authenticated = true;
       this.retry = 0;
+      relayLog.notice("connected to relay", { dsh: this.health });
       console.log(
         `Connected to Relay; DSH web is ${this.health ? "online" : "offline"}`,
       );

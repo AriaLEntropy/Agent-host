@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { lstat, mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { basename, delimiter, dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -32,7 +32,14 @@ import {
   type DshInstallation,
 } from "./dsh/native/index.js";
 import { createHermesConnector, createHermesMessageReader } from "./hermes/index.js";
-import { createOpenClawConnector, createOpenClawMessageReader } from "./openclaw/index.js";
+import {
+  createOpenClawConnector,
+  createOpenClawMessageReader,
+  defaultWorkspaceDirectory,
+  openClawPaths,
+} from "./openclaw/index.js";
+import { readFileByHandle } from "../platform/file-readability.js";
+import { OutsideProjectRule } from "../platform/outside-project.js";
 import {
   IDLE_AFTER_MS as OPENCODE_IDLE_AFTER_MS,
   OPENCODE_CONNECTOR_ID,
@@ -126,7 +133,7 @@ async function acpImageBlocks(attachments: readonly ResolvedAttachment[]): Promi
   for (const item of attachments) {
     let bytes: Buffer;
     try {
-      bytes = await readFile(item.path);
+      bytes = await readFileByHandle(item.path, { maxBytes: MAX_ARTIFACT_BYTES });
     } catch {
       // 解析与读取之间文件被清理掉了：按“过期或不存在”处理，不静默丢图
       throw new Error(`图片已过期或不存在：${item.artifactId}`);
@@ -549,11 +556,25 @@ function autoApproveKey(projectPath: string): string {
   return `${busStore.agentId()}:${normalizeProjectPath(projectPath)}`;
 }
 
-/** 续聊时任务没带 outsideProject 标记：空路径与用户主目录本身按「不在项目中」处理。 */
+/**
+ * 续聊时任务没带 outsideProject 标记：按上游 `OutsideProjectRule` 判定，
+ * 空路径、主目录、桌面/下载/文档、系统目录与 Agent 默认工作区都算「不在项目中」。
+ * `projectsRoot` 等 FR-14.6.3 落地后再接进来。
+ */
+let openClawWorkspace: string | undefined | null = null;
 function isOutsideProjectPath(projectPath: string): boolean {
-  const normalized = normalizeProjectPath(projectPath);
-  if (!normalized) return true;
-  return normalized === normalizeProjectPath(homedir());
+  if (openClawWorkspace === null) {
+    // 只算默认工作区，不读 `~/.openclaw/openclaw.json`：测试不能碰真实用户目录。
+    // 自定义 workspace 要等连接器把配置暴露出来后再接。
+    try {
+      openClawWorkspace = defaultWorkspaceDirectory(openClawPaths().stateDirectory);
+    } catch {
+      openClawWorkspace = undefined;
+    }
+  }
+  return new OutsideProjectRule({
+    agentWorkspaces: openClawWorkspace ? { openclaw: openClawWorkspace } : {},
+  }).contains(projectPath);
 }
 
 function isAutoApproveEnabled(projectPath: string): boolean {
@@ -1578,11 +1599,7 @@ async function fetchFile(commandId: string, payload: Record<string, unknown>): P
   if (!artifactId || !isValidArtifactId(artifactId) || !(await getArtifact(artifactId))) {
     let bytes: Buffer;
     try {
-      const info = await lstat(validated.path);
-      if (!info.isFile() || info.isSymbolicLink() || info.size !== validated.size) {
-        return done(commandId, false, "这个文件已经不在项目里了");
-      }
-      bytes = await readFile(validated.path);
+      bytes = await readFileByHandle(validated.path, { maxBytes: MAX_ARTIFACT_BYTES });
     } catch {
       return done(commandId, false, "这个文件已经不在项目里了");
     }

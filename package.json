@@ -40,7 +40,7 @@
     "smoke:m1-outage": "tsx scripts/m1-outage.ts",
     "list:agents": "tsx scripts/list-agents.ts",
     "probe:acp": "tsx scripts/acp-probe.ts",
-    "test": "tsx --test --test-concurrency=1 --test-force-exit test/tunnel/*.test.ts test/bus/*.test.ts test/connectors/*.test.ts"
+    "test": "tsx --test --test-concurrency=1 --test-force-exit test/tunnel/*.test.ts test/bus/*.test.ts test/connectors/*.test.ts test/platform/*.test.ts"
   },
   "dependencies": {
     "commander": "^13.0.0",

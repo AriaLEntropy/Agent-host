@@ -58,7 +58,13 @@ export {
 } from "./connector.js";
 export { OpenClawMessageReader } from "./message-reader.js";
 export type { OpenClawFetch, OpenClawMessageReaderOptions } from "./message-reader.js";
-export { OpenClawConfig, openClawPaths, portValue, secret } from "./config.js";
+export {
+  OpenClawConfig,
+  defaultWorkspaceDirectory,
+  openClawPaths,
+  portValue,
+  secret,
+} from "./config.js";
 export type { OpenClawPaths } from "./config.js";
 export {
   NodeWebSocketConnection,

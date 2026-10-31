@@ -15,13 +15,13 @@ import {
   lstat,
   mkdir,
   readdir,
-  readFile,
   rename,
   unlink,
   writeFile,
 } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { hostDataDir } from "../config.js";
+import { readRegularFile as readRegularFileByHandle } from "../platform/file-readability.js";
 
 /** 协议 2.3：单个产物上限 2 MiB（Host 侧缓存，不是 Relay 的 10 MiB）。 */
 export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
@@ -139,13 +139,7 @@ async function ensureRoot(): Promise<void> {
 }
 
 async function readRegularFile(path: string): Promise<Buffer | null> {
-  try {
-    const info = await lstat(path);
-    if (!info.isFile() || info.isSymbolicLink()) return null;
-    return await readFile(path);
-  } catch {
-    return null;
-  }
+  return readRegularFileByHandle(path, MAX_ARTIFACT_BYTES);
 }
 
 async function readRecord(artifactId: string): Promise<ArtifactRecord | null> {
