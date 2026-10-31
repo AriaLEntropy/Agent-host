@@ -28,6 +28,16 @@ import {
   parseSessionUpdate,
 } from "./acp/messages.js";
 import { AcpSessionState } from "./acp/session.js";
+import {
+  flushAcpSessionArchive,
+  installAcpSessionArchiveHooks,
+  resetAcpArchiveHydration,
+  restoreArchivedAcpTasks,
+} from "./acp/runtime-archive.js";
+import {
+  ConnectorWatcherController,
+  type ConnectorWatcherOptions,
+} from "./acp/runtime-watcher.js";
 import { createClaudeConnector, createClaudeMessageReader } from "./claude/index.js";
 import { createCodexConnector, createCodexMessageReader } from "./codex/index.js";
 import { isDedicatedKind, type DedicatedKind } from "./descriptors.js";
@@ -84,6 +94,10 @@ const MAX_TOOL_MESSAGES = 160;
 
 /** 协议 2.9：单条消息最多 4 张图；上传阶段已把单张限制在 2 MiB。 */
 export const MAX_ATTACHMENT_IMAGES = 4;
+
+// 会话存档挂在 store 的唯一写入口上：所有 ACP 任务（启动、状态、审批、续聊、
+// 对账基线）都会经过 upsertTask / removeTask，不需要在每个命令里散着调。
+installAcpSessionArchiveHooks();
 
 type AttachmentRef = { artifactId?: unknown };
 
@@ -413,6 +427,8 @@ let acpReconcileIntervalMs = ACP_RECONCILE_INTERVAL_MS;
 let acpIdleReconcileIntervalMs = ACP_IDLE_RECONCILE_INTERVAL_MS;
 let acpReconcileGeneration = 0;
 let acpReconciling = false;
+/** 清单监视器的单例；`startConnectorWatcher` 幂等创建，`stop` 后清空。 */
+let connectorWatcher: ConnectorWatcherController | undefined;
 const defaultAcpReconcileLogger = (message: string) => console.error(message);
 let acpReconcileLogger: (message: string) => void = defaultAcpReconcileLogger;
 
@@ -858,7 +874,9 @@ async function reconcileAcpAgent(spec: AgentSpec, generation: number) {
     // 实时数据（正在跑的会话 / 手机起的）拥有这条任务，只读观察不能改写。
     if (busHost.isLive(task.id) || sessions.has(task.id)) continue;
     const existing = busStore.taskById(task.id);
-    const merged = mergeListedTask(task, existing);
+    // 先过一遍 store 的 upsert 盖章（worktree → 主仓库），否则指纹每轮都把
+    // 「列表里的 worktree 路径」和「已盖章的主仓库路径」当成变化。
+    const merged = busStore.stampTask(mergeListedTask(task, existing));
     if (baseline) {
       busStore.upsertTask(merged, false);
     } else if (!existing || taskFingerprint(existing) !== taskFingerprint(merged)) {
@@ -997,6 +1015,7 @@ function taskFingerprint(task: BusTask): string {
     task.title,
     task.projectPath,
     task.projectName,
+    task.worktreePath ?? "",
     task.status,
     task.lastMessage ?? "",
     task.origin,
@@ -1080,7 +1099,9 @@ export function resetRuntime() {
   dshFactories = {};
   specs.splice(0, specs.length);
   idleMs = IDLE_MS;
+  stopConnectorWatcher();
   resetAcpReconcile();
+  resetAcpArchiveHydration();
   busStore.setAgents([]);
   // 只清内存缓存：设置文件保留，下次刷新 / 落盘时重新读取。
   // 已排队但未触发的写入先尽力刷出去，避免刚改完就重置时丢掉。
@@ -1107,9 +1128,35 @@ export async function refreshAgents(
   const found = await discover({ hiddenRegistryIds });
   // 先读本机设置，让 useAgents 在构建快照前套用启停覆盖。
   await ensureConnectorSettings();
+  // 启动时把上次记下的 ACP 会话补回 store（只补缺失 id，不覆盖 bus-state），
+  // 放在 useAgents 的首次快照之前，手机一连上就能看到。
+  await restoreArchivedAcpTasks(
+    found.agents.filter((agent) => agent.kind === "acp").map((agent) => agent.id),
+  );
   useAgents(found.agents, true);
   warmConnectorModels(found.agents);
   return found;
+}
+
+/**
+ * 起清单热监视：清单增删改去抖后重新发现 agent。重复调用是幂等的；
+ * 刷新由 `ConnectorWatcherController` 串行化，轮询不会互相重叠。
+ * 父进程（`up`）负责 start / stop；测试可注入 watcher 与 refresh。
+ */
+export function startConnectorWatcher(options: ConnectorWatcherOptions = {}): Promise<void> {
+  connectorWatcher ??= new ConnectorWatcherController({
+    ...options,
+    refresh: options.refresh ?? (() => refreshAgents()),
+  });
+  return connectorWatcher.start();
+}
+
+/** 停清单热监视并把排队中的会话存档刷出去；重复调用是空操作。 */
+export function stopConnectorWatcher(): void {
+  const watcher = connectorWatcher;
+  connectorWatcher = undefined;
+  watcher?.stop();
+  void flushAcpSessionArchive();
 }
 
 /**

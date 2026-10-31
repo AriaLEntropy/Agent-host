@@ -15,7 +15,12 @@ import {
   probeErrorLabel,
   probeExitCode,
 } from "./connectors/probe.js";
-import { flushConnectorSettings, refreshAgents } from "./connectors/runtime.js";
+import {
+  flushConnectorSettings,
+  refreshAgents,
+  startConnectorWatcher,
+  stopConnectorWatcher,
+} from "./connectors/runtime.js";
 import { connectorSettingsPath } from "./connectors/settings-store.js";
 import {
   checkRelayHealth,
@@ -187,11 +192,14 @@ program
       },
     });
     await client.start();
+    // 清单增删改后自动重新发现 agent；失败只记日志，不影响隧道。
+    await startConnectorWatcher();
     let stopping = false;
     const stop = async () => {
       if (stopping) return;
       stopping = true;
       try {
+        stopConnectorWatcher();
         await flushConnectorSettings();
         await busStore.flushPersistence();
         await shutdownLogging();

@@ -1,7 +1,15 @@
+import { basename } from "node:path";
+import { platformPath } from "../platform/path.js";
 import { PLUGIN_VERSION } from "../tunnel/version.js";
 import { saveBusState, type PersistedBusState, type PersistedSession } from "./persistence.js";
 import { ProjectDismissals } from "./project-dismissals.js";
 import { normalizeProjectPath } from "./project-path.js";
+import {
+  WorktreeResolver,
+  defaultWorktreeArchivePath,
+  resolveByShape,
+  worktreesComponentIndex,
+} from "./worktree.js";
 
 export const MAX_TASKS = 400;
 export const MAX_PROJECTS = 60;
@@ -39,6 +47,8 @@ export type BusTask = {
   title: string;
   projectPath: string;
   projectName: string;
+  /** 协议 2.7：会话实际在 git worktree 里时的工作目录；此时 `projectPath` 是主仓库。 */
+  worktreePath?: string;
   outsideProject?: boolean;
   status: string;
   lastMessage?: string;
@@ -166,6 +176,23 @@ export type HostIdentity = {
 
 type Listener = (event: BusEvent) => void;
 
+/**
+ * worktree 解析的注入点（协议 2.7）。生产环境用 `WorktreeResolver`；测试可以传
+ * 一个只认固定路径的假实现，避免读真实 `worktrees.json` / 用户目录。
+ */
+export type TaskWorktreeResolver = {
+  projectRoot(path: string): string | null;
+};
+
+/**
+ * store 的唯一写入口上的观察者。会话存档用它记住/忘掉 ACP 元数据，bus 层
+ * 不需要反向依赖 connectors。回调抛错会被忽略，写入本身永远成功。
+ */
+export type TaskStoreHooks = {
+  taskUpserted?: (task: BusTask) => void;
+  taskRemoved?: (taskId: string, task: BusTask | undefined) => void;
+};
+
 export function hostPlatform(): HostPlatform {
   if (process.platform === "darwin") return "macos";
   if (process.platform === "linux") return "linux";
@@ -190,6 +217,9 @@ export class TaskStore {
   private persistChain: Promise<void> = Promise.resolve();
   /** 协议 3.8：被手机移出列表的项目。惰性创建，避免 import 时读真实用户目录。 */
   private projectDismissals: ProjectDismissals | undefined;
+  /** `undefined` = 还没用到（首次遇到 worktree 形状时惰性建默认解析器）；`null` = 停用。 */
+  private worktreeResolver: TaskWorktreeResolver | null | undefined;
+  private taskHooks: TaskStoreHooks = {};
   private readonly waiters = new Set<() => void>();
   private readonly listeners = new Set<Listener>();
 
@@ -213,6 +243,65 @@ export class TaskStore {
   /** 启动时接上本机持久化；未配置时所有保存都是 no-op。 */
   configurePersistence(path: string) {
     this.persistPath = path;
+  }
+
+  /**
+   * 接上 store 的写入观察者。runtime 用它把 ACP 会话元数据记进会话存档；
+   * 回调永远不会让一次 upsert / remove 失败。
+   */
+  setTaskHooks(hooks: TaskStoreHooks) {
+    this.taskHooks = hooks;
+  }
+
+  /**
+   * 换 worktree 解析器。`null` 完全停用；省略 / `undefined` 时首次遇到
+   * worktree 形状的路径才创建带默认归档位置的 `WorktreeResolver`。
+   */
+  configureWorktreeResolver(resolver: TaskWorktreeResolver | null) {
+    this.worktreeResolver = resolver;
+  }
+
+  /**
+   * upsert 边界上的路径盖章（协议 2.7）：会话开在 git worktree 里时，
+   * `projectPath` 换成主仓库、真实工作目录挪进 `worktreePath`。同步执行；
+   * 解析器内部有缓存，重复盖章结果不变。其它路径原样返回。
+   */
+  stampTask(task: BusTask): BusTask {
+    return this.stampWorktree(task);
+  }
+
+  private stampWorktree(task: BusTask): BusTask {
+    if (task.outsideProject) return task;
+    const working = task.worktreePath?.trim() || task.projectPath?.trim() || "";
+    // 只有路径里带 worktrees 段（含 Claude / Codex 的固定形状）才值得看盘。
+    if (!working || (resolveByShape(working) === null && worktreesComponentIndex(working) === null)) {
+      return task;
+    }
+    let resolver = this.worktreeResolver;
+    if (resolver === undefined) {
+      resolver = new WorktreeResolver({ archivePath: defaultWorktreeArchivePath() });
+      this.worktreeResolver = resolver;
+    }
+    if (resolver === null) return task;
+    let root: string | null;
+    try {
+      root = resolver.projectRoot(working);
+    } catch {
+      // 解析失败就保留原样；不能因为一次盖章失败丢掉任务。
+      return task;
+    }
+    if (!root) return task;
+    const projectPath = platformPath.canonical(root);
+    const worktreePath = platformPath.canonical(working);
+    const projectName = basename(projectPath) || task.projectName;
+    if (
+      task.projectPath === projectPath &&
+      task.worktreePath === worktreePath &&
+      task.projectName === projectName
+    ) {
+      return task;
+    }
+    return { ...task, projectPath, projectName, worktreePath };
   }
 
   private dismissals(): ProjectDismissals {
@@ -403,20 +492,26 @@ export class TaskStore {
    * 列表是通知基线，不是变化；逐条推送会把几十条历史会话当成新任务发到手机上。
    */
   upsertTask(task: BusTask, publish = true) {
-    const rest = this.tasks.filter((item) => item.id !== task.id);
-    this.tasks = [task, ...rest]
+    const stamped = this.stampWorktree(task);
+    const rest = this.tasks.filter((item) => item.id !== stamped.id);
+    this.tasks = [stamped, ...rest]
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .slice(0, MAX_TASKS);
     // 协议 3.8：新会话 / 新活动可以让被移出的项目重新可见。上游在保存失败时
     // 只忽略（`try?`），内存状态仍然生效。
     const dismissals = this.dismissals();
-    const restored = dismissals.reconcile([task]);
+    const restored = dismissals.reconcile([stamped]);
     if (restored) dismissals.save();
     this.schedulePersist();
-    if (publish && !dismissals.hides(task)) this.publish({ kind: "taskUpdated", task });
+    if (publish && !dismissals.hides(stamped)) this.publish({ kind: "taskUpdated", task: stamped });
     // 恢复是可见性变化：即使这次 upsert 处于静默基线（publish=false），也要
     // 补一份全量快照，让被移出的项目与任务重新出现（对齐上游事件）。
     if (restored) this.publish({ kind: "snapshot" });
+    try {
+      this.taskHooks.taskUpserted?.(stamped);
+    } catch {
+      // 观察者（会话存档）失败不能影响任务写入。
+    }
   }
 
   /**
@@ -456,11 +551,17 @@ export class TaskStore {
   }
 
   removeTask(taskId: string) {
+    const removed = this.tasks.find((item) => item.id === taskId);
     this.tasks = this.tasks.filter((item) => item.id !== taskId);
     this.messages.delete(taskId);
     this.sessions.delete(taskId);
     this.schedulePersist();
     this.publish({ kind: "taskRemoved", taskId });
+    try {
+      this.taskHooks.taskRemoved?.(taskId, removed);
+    } catch {
+      // 会话存档忘记失败不能影响删除结果。
+    }
   }
 
   emitTaskMessages(taskMessages: BusTaskMessages) {
@@ -489,6 +590,8 @@ export class TaskStore {
     this.agents = [];
     this.messages.clear();
     this.sessions.clear();
+    // 解析器缓存跟着这次运行走；观察者（会话存档）仍然保留。
+    this.worktreeResolver = undefined;
     // 只清内存；removed-projects.json 与已配置的路径都保留。
     this.projectDismissals?.reset();
     if (this.persistTimer) clearTimeout(this.persistTimer);
