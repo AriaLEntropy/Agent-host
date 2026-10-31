@@ -91,7 +91,7 @@ async function captureConsole<T>(
 }
 
 describe("agent list", () => {
-  test("formats id / kind / name / available / lastError on one line", () => {
+  test("formats id / kind / name / available / enabled / status / lastError on one line", () => {
     assert.equal(
       formatAgentLine(
         makeSpec({
@@ -99,14 +99,28 @@ describe("agent list", () => {
           kind: "acp",
           name: "Gemini CLI",
           available: false,
+          enabled: false,
           lastError: "not installed",
         }),
       ),
-      "gemini\tacp\tGemini CLI\tavailable=false\tlastError=not installed",
+      "gemini\tacp\tGemini CLI\tavailable=false\tenabled=false\tstatus=degraded\tlastError=not installed",
     );
     assert.equal(
       formatAgentLine(makeSpec({ id: "dsh", kind: "dsh", name: "DeepSeek Harness" })),
-      "dsh\tdsh\tDeepSeek Harness\tavailable=true\tlastError=-",
+      "dsh\tdsh\tDeepSeek Harness\tavailable=true\tenabled=true\tstatus=ok\tlastError=-",
+    );
+    assert.equal(
+      formatAgentLine(
+        makeSpec({
+          id: "codex",
+          kind: "codex",
+          name: "Codex",
+          available: true,
+          status: "error",
+          lastError: "probe failed",
+        }),
+      ),
+      "codex\tcodex\tCodex\tavailable=true\tenabled=true\tstatus=error\tlastError=probe failed",
     );
   });
 
@@ -129,8 +143,8 @@ describe("agent list", () => {
     );
     assert.equal(value, 0);
     assert.deepEqual(lines, [
-      "gemini\tacp\tGemini CLI\tavailable=true\tlastError=-",
-      "broken\tacp\tBroken\tavailable=false\tlastError=找不到 command：broken",
+      "gemini\tacp\tGemini CLI\tavailable=true\tenabled=true\tstatus=ok\tlastError=-",
+      "broken\tacp\tBroken\tavailable=false\tenabled=true\tstatus=degraded\tlastError=找不到 command：broken",
       "✗ C:/agents/bad.json：文件名必须是 bad.json",
     ]);
   });

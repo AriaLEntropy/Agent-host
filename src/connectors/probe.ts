@@ -250,13 +250,18 @@ function toProbeError(error: unknown, phase: string): ProbeError {
   return new ProbeError("failed", `${phase} 失败：${detail}`, { cause: error });
 }
 
-/** `agent list` 的一行：id、kind、name、available、lastError（没有时用 `-`）。 */
+/** `agent list` 的一行：id、kind、name、available、enabled、status、lastError。 */
 export function formatAgentLine(agent: AgentSpec): string {
+  const status =
+    agent.status ??
+    (agent.lastError && agent.available ? "error" : agent.available ? "ok" : "degraded");
   return [
     agent.id,
     agent.kind,
     agent.name,
     `available=${agent.available}`,
+    `enabled=${agent.enabled}`,
+    `status=${status}`,
     `lastError=${agent.lastError ?? "-"}`,
   ].join("\t");
 }
