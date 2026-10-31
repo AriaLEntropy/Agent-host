@@ -17,7 +17,7 @@
 ## 环境要求
 
 - Windows 10/11（首期；其他桌面平台后续支持）
-- Node.js 18+
+- Node.js 22.5+（使用内置 `node:sqlite`）
 - 手机安装支持 Agent-host 的 App（会请求 `/bus/describe`）
 - 可选：本机 DSH 在 `3080` 运行（需要 DSH 完整视图时）
 

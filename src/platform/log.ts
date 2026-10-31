@@ -326,7 +326,12 @@ export async function shutdownLogging(): Promise<void> {
 
 // MARK: - 诊断包
 
-export type DiagnosticFile = { name: string; data: Buffer };
+export type DiagnosticFile = {
+  name: string;
+  data: Buffer;
+  /** tar 里的权限位；默认 0600（诊断包只有本人要看）。 */
+  mode?: number;
+};
 
 /** 只保留可公开的配置字段；任何名字像凭据的键一律打码。 */
 export function redactedConfig(config: Config): Record<string, unknown> {
@@ -426,19 +431,25 @@ export function createTarGz(entries: readonly DiagnosticFile[], now: Date = new 
     if (Buffer.byteLength(name) > 100) {
       throw new Error(`diagnostic file name is too long: ${name}`);
     }
-    blocks.push(tarHeader(name, entry.data.length, now.getTime()));
+    blocks.push(tarHeader(name, entry.data.length, now.getTime(), entry.mode ?? 0o600));
     blocks.push(entry.data);
     const padding = (512 - (entry.data.length % 512)) % 512;
     if (padding > 0) blocks.push(Buffer.alloc(padding));
   }
   blocks.push(Buffer.alloc(1024));
-  return gzipSync(Buffer.concat(blocks), { level: 9 });
+  const gzipped = gzipSync(Buffer.concat(blocks), { level: 9 });
+  // zlib 会把编译时的 OS 写进 gzip 头（Unix 0x03 / Windows 0x0a），同一份输入
+  // 在不同系统上就会得到不同字节。改成 0xff（unknown），发布包才能跨系统复现。
+  if (gzipped.length > 10 && gzipped[0] === 0x1f && gzipped[1] === 0x8b) {
+    gzipped[9] = 0xff;
+  }
+  return gzipped;
 }
 
-function tarHeader(name: string, size: number, mtimeMs: number): Buffer {
+function tarHeader(name: string, size: number, mtimeMs: number, mode: number): Buffer {
   const header = Buffer.alloc(512, 0);
   header.write(name, 0, 100, "utf8");
-  writeOctal(header, 100, 8, 0o600);
+  writeOctal(header, 100, 8, mode);
   writeOctal(header, 108, 8, 0);
   writeOctal(header, 116, 8, 0);
   writeOctal(header, 124, 12, size);

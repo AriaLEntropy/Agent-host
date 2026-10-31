@@ -5,7 +5,7 @@
   "license": "ISC",
   "type": "module",
   "engines": {
-    "node": ">=18"
+    "node": ">=22.5"
   },
   "main": "dist/cli.js",
   "bin": {
@@ -22,6 +22,7 @@
   "scripts": {
     "dev": "tsx src/cli.ts",
     "build": "tsc -p tsconfig.json",
+    "package:release": "tsx scripts/package-release.ts",
     "start": "node dist/cli.js",
     "measure:snapshot": "tsx scripts/snapshot-size.ts",
     "smoke:bus": "tsx scripts/bus-smoke.ts",
