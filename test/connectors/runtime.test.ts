@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
@@ -18,6 +18,11 @@ import {
   useAgents,
   type DshConnectorInstance,
 } from "../../src/connectors/runtime.js";
+import {
+  createLogger,
+  initializeLogging,
+  shutdownLogging,
+} from "../../src/platform/log.js";
 
 const agentId = "hV3nQ7pLxK2mR8sTfW4bZQ";
 const fake = process.execPath;
@@ -705,5 +710,39 @@ describe("acp runtime", { concurrency: false }, () => {
     assert.equal(user.length, 1);
     assert.equal(user[0]?.text, "NEED_PERMISSION");
     resetRuntime();
+  });
+
+  test("FR-14.7.2: a full turn leaves no prompt text or credentials in the file log", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "agent-host-log-privacy-"));
+    const secret = "PROMPT-1f9c4a72-秘密";
+    try {
+      reset();
+      useFakeAgent();
+      await initializeLogging({ directory, stderr: false });
+      // 即使调用方误把凭据当字段传进来，文件日志也只留 <private>。
+      createLogger("agent-host", "relay").info("relay handshake", {
+        token: "HOST-SECRET",
+        masterKey: "MASTER-SECRET",
+      });
+
+      await post(startCommand("cmd-log-privacy", `ECHO:${secret}`));
+      const taskId = "acp:my-agent:sess-1";
+      await until(() => busStore.taskById(taskId)?.status === "completed");
+      await shutdownLogging();
+
+      const names = (await readdir(directory)).filter((name) =>
+        /^agent-host-\d{4}-\d{2}-\d{2}\.log$/.test(name),
+      );
+      assert.equal(names.length, 1);
+      const text = await readFile(join(directory, names[0]!), "utf8");
+      assert.match(text, /host prepared|relay handshake/);
+      assert.doesNotMatch(text, new RegExp(secret));
+      assert.doesNotMatch(text, /HOST-SECRET|MASTER-SECRET/);
+      assert.doesNotMatch(text, /C:\/work\/demo|C:\\\\work\\\\demo/);
+    } finally {
+      await shutdownLogging();
+      resetRuntime();
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
