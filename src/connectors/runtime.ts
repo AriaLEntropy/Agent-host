@@ -21,6 +21,12 @@ import {
   resolveAttachment,
 } from "../bus/artifacts.js";
 import { hostDataDir } from "../config.js";
+import {
+  optionIdFor,
+  parsePermissionRequest,
+  parseSessionUpdate,
+} from "./acp/messages.js";
+import { AcpSessionState } from "./acp/session.js";
 import { createClaudeConnector, createClaudeMessageReader } from "./claude/index.js";
 import { createCodexConnector, createCodexMessageReader } from "./codex/index.js";
 import { isDedicatedKind, type DedicatedKind } from "./descriptors.js";
@@ -147,15 +153,13 @@ export class AcpTimeout extends Error {}
 export class AcpAuthRequired extends Error {}
 export class AcpRejected extends Error {}
 
-type PermissionOption = { optionId: string; kind: string };
-
 type LiveSession = {
   taskId: string;
   sessionId: string;
   cwd: string;
-  messages: BusMessage[];
-  agentText: string;
-  permission?: { rpcId: number; options: PermissionOption[] };
+  state: AcpSessionState;
+  /** `session/load` 重放中的状态；载入成功才替换 `state`。 */
+  replay?: AcpSessionState;
 };
 
 type RpcResult = { result?: unknown; error?: { code?: number; message?: string } };
@@ -168,6 +172,8 @@ export class AcpProcess {
     { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }
   >();
   private idleTimer: NodeJS.Timeout | undefined;
+  /** 正在跑（含等审批）的轮数：有轮次时绝不因空闲关进程。 */
+  private activeTurns = 0;
   private stderrTail = "";
   readonly capabilities = { loadSession: false, resume: false, image: false, listSessions: false };
   alive = false;
@@ -262,6 +268,20 @@ export class AcpProcess {
     this.send({ jsonrpc: "2.0", id, result });
   }
 
+  /**
+   * 一轮开始 / 结束。轮次未收尾（包括挂着审批）时不排空闲关闭：
+   * 上游 `AcpConnector.stopIfIdle` 也是这么做的——审批可能等上很久。
+   */
+  setTurnActive(active: boolean) {
+    this.activeTurns = Math.max(0, this.activeTurns + (active ? 1 : -1));
+    if (this.activeTurns > 0) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = undefined;
+    } else {
+      this.armIdle();
+    }
+  }
+
   kill() {
     clearTimeout(this.idleTimer);
     this.alive = false;
@@ -288,6 +308,8 @@ export class AcpProcess {
 
   private armIdle() {
     clearTimeout(this.idleTimer);
+    // 轮次还在跑：收尾时会重新排。
+    if (this.activeTurns > 0) return;
     this.idleTimer = setTimeout(() => this.kill(), this.idleMs);
   }
 
@@ -347,6 +369,8 @@ let idleMs = IDLE_MS;
 
 /** 上游 `AcpHub.listInterval`：进程在跑（或这一轮要拉起）时每 60 秒刷一次列表。 */
 export const ACP_RECONCILE_INTERVAL_MS = 60_000;
+/** 上游 `AcpHub.idleListInterval`：没在跑的 agent 每 600 秒才为对账拉起一次。 */
+export const ACP_IDLE_RECONCILE_INTERVAL_MS = 600_000;
 /** `session/list` 最多翻几页；超过就默默截断，不当错误。上游 `AcpClient.maxPages`。 */
 const ACP_LIST_MAX_PAGES = 5;
 const ACP_LIST_TIMEOUT_MS = 60_000;
@@ -361,6 +385,8 @@ type AcpListedSession = {
 type AcpReconcileState = {
   /** 某个 agent 的第一次成功列表只写不推，之后才推变化。 */
   baselined: boolean;
+  /** 上一次为对账拉起 / 使用进程的时间；没在跑的 agent 按 `idleListInterval` 节流。 */
+  lastRefreshAt?: number;
   /** 握手明确说不支持 `session/list`：不再为它拉起进程。 */
   listUnsupported: boolean;
   /** 失败只记一次日志，成功后重置。 */
@@ -383,6 +409,7 @@ const startingProcesses = new Map<string, AcpProcess>();
 const processEpochs = new Map<string, number>();
 let acpReconcileTimer: NodeJS.Timeout | undefined;
 let acpReconcileIntervalMs = ACP_RECONCILE_INTERVAL_MS;
+let acpIdleReconcileIntervalMs = ACP_IDLE_RECONCILE_INTERVAL_MS;
 let acpReconcileGeneration = 0;
 let acpReconciling = false;
 const defaultAcpReconcileLogger = (message: string) => console.error(message);
@@ -649,6 +676,12 @@ export function setAcpReconcileInterval(ms: number) {
   restartAcpReconcileTimer();
 }
 
+/** 测试注入：没在跑的 agent 多久才重新拉起一次；0 = 跟运行中的周期一样。 */
+export function setAcpIdleReconcileInterval(ms: number) {
+  acpIdleReconcileIntervalMs =
+    Number.isFinite(ms) && ms >= 0 ? Math.trunc(ms) : ACP_IDLE_RECONCILE_INTERVAL_MS;
+}
+
 /** 测试注入：失败日志默认走 stderr；传空函数可静音。 */
 export function setAcpReconcileLogger(logger: (message: string) => void = defaultAcpReconcileLogger) {
   acpReconcileLogger = logger;
@@ -725,6 +758,7 @@ function resetAcpReconcile() {
   acpReconcileStates.clear();
   acpReconcileSignatures.clear();
   acpReconcileIntervalMs = ACP_RECONCILE_INTERVAL_MS;
+  acpIdleReconcileIntervalMs = ACP_IDLE_RECONCILE_INTERVAL_MS;
   acpReconcileGeneration += 1;
   acpReconciling = false;
   acpReconcileLogger = defaultAcpReconcileLogger;
@@ -736,8 +770,20 @@ async function reconcileAcpSessionsOnce() {
   acpReconciling = true;
   const generation = acpReconcileGeneration;
   try {
+    const now = Date.now();
     for (const spec of specs.filter(acpReconcileEligible)) {
       if (generation !== acpReconcileGeneration) return;
+      const state = acpReconcileState(spec.id);
+      // 与上游 `AcpHub.refreshLists` 一致：进程在跑就按列表周期刷，闲着就很久才为对账拉起一次。
+      // OpenCode 读的是本机数据库、没有常驻进程，按"在跑"处理以免新会话十分钟才出现。
+      const running =
+        spec.id === OPENCODE_CONNECTOR_ID || processes.get(processKey(spec))?.alive === true;
+      const interval = running
+        ? acpReconcileIntervalMs
+        : Math.max(acpReconcileIntervalMs, acpIdleReconcileIntervalMs);
+      if (state.lastRefreshAt !== undefined && now - state.lastRefreshAt < interval) continue;
+      // 先记时间再跑：这一拍起不来也算试过，不会在下一个周期里反复拉起。
+      state.lastRefreshAt = now;
       await reconcileAcpAgent(spec, generation);
     }
   } finally {
@@ -1351,7 +1397,17 @@ async function startTask(commandId: string, payload: Record<string, unknown>): P
   const task = baseTask(spec, taskId, cwd, prompt.slice(0, 80) || "新任务", now, !hasProject);
   if (requestedModel) task.model = requestedModel;
   if (appliedEffort) task.effort = appliedEffort;
-  sessions.set(taskId, { taskId, sessionId, cwd, messages: [], agentText: "" });
+  sessions.set(taskId, {
+    taskId,
+    sessionId,
+    cwd,
+    state: new AcpSessionState({
+      title: task.title,
+      projectName: task.projectName,
+      status: task.status,
+      updatedAt: now,
+    }),
+  });
   busStore.rememberSession(taskId, sessionId, "acp");
   if (hasProject) {
     busStore.rememberProject({
@@ -1363,7 +1419,7 @@ async function startTask(commandId: string, payload: Record<string, unknown>): P
     });
   }
   busStore.upsertTask(task);
-  void runPrompt(process, taskId, commandId, prompt, imageBlocks).catch((error) =>
+  void runPrompt(process, taskId, prompt, imageBlocks).catch((error) =>
     markFailed(taskId, messageOf(error)),
   );
   return { commandId, ok: true, taskId, finishedAt: now };
@@ -1379,6 +1435,10 @@ async function followUp(commandId: string, payload: Record<string, unknown>): Pr
   const task = busStore.taskById(taskId);
   if (!task) return done(commandId, false, "task not found");
   if (!session) return done(commandId, false, "task not found");
+  // 与上游一致：一个会话同时只跑一轮，手机上不能把两条续聊叠在一起。
+  if (session.state.running) {
+    return done(commandId, false, "这个会话正在运行，等它这一轮结束再续聊");
+  }
   const spec = specForTask(task);
   const unavailable = specReadyError(spec);
   if (unavailable) return done(commandId, false, unavailable);
@@ -1391,7 +1451,7 @@ async function followUp(commandId: string, payload: Record<string, unknown>): Pr
   let process = processes.get(processKey(spec));
   if (!process?.alive) {
     process = await ensureProcess(spec);
-    if (process.capabilities.loadSession) await process.call("session/load", { sessionId: session.sessionId, cwd: session.cwd, mcpServers: [] });
+    if (process.capabilities.loadSession) await loadSessionTranscript(process, session);
     else if (process.capabilities.resume) await process.call("session/resume", { sessionId: session.sessionId, cwd: session.cwd, mcpServers: [] });
     else return done(commandId, false, "session cannot be restored");
   }
@@ -1412,7 +1472,7 @@ async function followUp(commandId: string, payload: Record<string, unknown>): Pr
     busStore.upsertTask({ ...nextTask, updatedAt: new Date().toISOString() });
   }
   busStore.bumpSessionRevision(taskId);
-  void runPrompt(process, taskId, commandId, prompt, imageBlocks).catch((error) =>
+  void runPrompt(process, taskId, prompt, imageBlocks).catch((error) =>
     markFailed(taskId, messageOf(error)),
   );
   return done(commandId, true, undefined, taskId);
@@ -1425,21 +1485,33 @@ async function approve(commandId: string, payload: Record<string, unknown>): Pro
   if (isDshTaskId(taskId)) return dshApprove(commandId, taskId, payload);
   const session = sessions.get(taskId);
   const task = busStore.taskById(taskId);
-  if (!session?.permission || !task) return done(commandId, false, "task not found");
-  const allow = payload.decision !== "deny";
-  const preferred = allow ? ["allow_once", "allow_always"] : ["reject_once", "reject_always"];
-  const option = preferred
-    .map((kind) => session.permission?.options.find((item) => item.kind === kind))
-    .find(Boolean);
-  if (!option) return done(commandId, false, "no matching permission option");
+  if (!session || !task) return done(commandId, false, "task not found");
+  const requestId = typeof payload.requestId === "string" ? payload.requestId.trim() : "";
+  if (!requestId) return done(commandId, false, "requestId is missing");
+  const pending = session.state.pending;
+  // 手机可能连点两次，或电脑上已经答过了：只有当前挂着的这一条能批。
+  if (!pending || pending.request.toolCall.toolCallId !== requestId) {
+    return done(commandId, false, "没有待审批的请求（可能已经处理过了）");
+  }
+  const decision = payload.decision === "deny" ? "deny" : "allow";
+  const optionId = optionIdFor(pending.request.options, decision, answersOf(payload.answers));
+  if (!optionId) {
+    return done(
+      commandId,
+      false,
+      decision === "allow" ? "agent 没有提供「允许」选项" : "agent 没有提供「拒绝」选项",
+    );
+  }
   const spec = specForTask(task);
   const unavailable = specReadyError(spec);
   if (unavailable) return done(commandId, false, unavailable);
   const process = spec ? processes.get(processKey(spec)) : undefined;
   if (!process?.alive) return done(commandId, false, "agent is not running");
-  process.respond(session.permission.rpcId, { outcome: { outcome: "selected", optionId: option.optionId } });
-  session.permission = undefined;
-  busStore.upsertTask({ ...task, status: "running", pendingRequest: undefined, updatedAt: new Date().toISOString() });
+  // 先复原状态再放行 agent：反过来的话这一轮可能在写回之前就收尾，
+  // 最终状态会被旧的 running 盖掉。
+  session.state.clearPending(new Date().toISOString());
+  writeSessionRecord(task, session.state);
+  process.respond(pending.rpcId, { outcome: { outcome: "selected", optionId } });
   return done(commandId, true, undefined, taskId);
 }
 
@@ -1452,16 +1524,23 @@ async function interrupt(commandId: string, payload: Record<string, unknown>): P
   const session = sessions.get(taskId);
   if (!task) return done(commandId, false, "task not found");
   if (!session) return done(commandId, false, "task not found");
+  if (!session.state.running) {
+    return done(commandId, false, "这个会话现在没有在运行，只能在电脑上中断");
+  }
   const spec = specForTask(task);
   const unavailable = specReadyError(spec);
   if (unavailable) return done(commandId, false, unavailable);
   const process = spec ? processes.get(processKey(spec)) : undefined;
-  process?.notify("session/cancel", { sessionId: session.sessionId });
-  if (session.permission && process?.alive) {
-    process.respond(session.permission.rpcId, { outcome: { outcome: "cancelled" } });
-    session.permission = undefined;
+  if (!process?.alive) return done(commandId, false, "agent is not running");
+  // ACP 要求：发 `session/cancel` 时挂着的审批一律回 cancelled。先写状态再放行。
+  if (session.state.pending) {
+    const rpcId = session.state.pending.rpcId;
+    session.state.clearPending(new Date().toISOString());
+    writeSessionRecord(task, session.state);
+    process.respond(rpcId, { outcome: { outcome: "cancelled" } });
   }
-  busStore.upsertTask({ ...withoutPending(task), status: "interrupted", updatedAt: new Date().toISOString() });
+  process.notify("session/cancel", { sessionId: session.sessionId });
+  // 这一轮由 agent 回的 `cancelled` 收尾（记 interrupted）。
   return done(commandId, true, undefined, taskId);
 }
 
@@ -1722,6 +1801,11 @@ async function setConnectorEnabled(
   settings.setEnabled(spec.kind, settingsConnectorId(spec), payload.enabled);
   // 停用后不再对账；重新启用时基线清空，回来第一轮仍静默。
   syncAcpReconcile(specs);
+  // 上游 `AcpHub.applyEnabledState`：刚启用的 agent 立刻刷一次列表，不等下一拍
+  // （没在跑的 agent 下一拍可能要等十分钟）。刷新放后台，不拖住这条命令。
+  if (payload.enabled && spec.kind === "acp" && acpReconcileEligible(spec)) {
+    void reconcileAcpSessionsNow().catch(() => undefined);
+  }
   busStore.setAgents(specs.map(listed), true);
   return done(commandId, true);
 }
@@ -2371,110 +2455,134 @@ async function ensureProcess(spec: AgentSpec) {
 function onAgentMessage(spec: AgentSpec, message: Record<string, unknown>) {
   if (message.method === "session/update") {
     const params = record(message.params);
-    const update = record(params.update);
     const session = sessionByAcpId(typeof params.sessionId === "string" ? params.sessionId : "");
     if (!session) return;
-    applyUpdate(session, update);
+    const update = parseSessionUpdate(record(params.update));
+    const now = new Date().toISOString();
+    // `session/load` 的历史重放进单独的一份，载入成功才换上去。
+    if (session.replay) {
+      session.replay.apply(update, now);
+      return;
+    }
+    const task = busStore.taskById(session.taskId);
+    if (!task) return;
+    if (session.state.apply(update, now)) writeSessionRecord(task, session.state);
     return;
   }
   if (message.method !== "session/request_permission" || typeof message.id !== "number") return;
-  const params = record(message.params);
-  const session = sessionByAcpId(typeof params.sessionId === "string" ? params.sessionId : "");
+  const request = parsePermissionRequest(record(message.params));
+  if (!request || typeof message.id !== "number") return;
+  const session = sessionByAcpId(request.sessionId);
   const task = session ? busStore.taskById(session.taskId) : undefined;
   if (!session || !task) return;
-  const tool = record(params.toolCall);
-  const options = Array.isArray(params.options)
-    ? params.options.map((item) => record(item)).filter((item) => typeof item.optionId === "string" && typeof item.kind === "string")
-    : [];
-  session.permission = {
-    rpcId: message.id,
-    options: options as PermissionOption[],
-  };
-  const toolKind = tool.kind;
-  const pendingKind = toolKind === "execute" ? "command" : toolKind === "edit" || toolKind === "delete" || toolKind === "move" ? "fileChange" : "permission";
-  const detail = JSON.stringify(tool.rawInput ?? tool).slice(0, 2000);
-  busStore.upsertTask({
-    ...task,
-    status: "waitingApproval",
-    pendingRequest: {
-      id: typeof tool.toolCallId === "string" ? tool.toolCallId : String(message.id),
-      kind: pendingKind,
-      summary: typeof tool.title === "string" ? tool.title.slice(0, 200) : "permission",
-      detail,
-    },
-    updatedAt: new Date().toISOString(),
-  });
-  void spec;
+  const process = processes.get(processKey(spec));
+  // 轮次外的审批挂上去就再也没人收尾了：直接回 cancelled。
+  if (!session.state.running) {
+    process?.respond(message.id, { outcome: { outcome: "cancelled" } });
+    return;
+  }
+  // 同一会话同时只挂一个：新的来了，旧的没有答案（子进程收到的是 ACP 的 cancelled）。
+  if (session.state.pending) {
+    process?.respond(session.state.pending.rpcId, { outcome: { outcome: "cancelled" } });
+  }
+  session.state.setPending(request, message.id, new Date().toISOString());
+  writeSessionRecord(task, session.state);
 }
 
-function applyUpdate(session: LiveSession, update: Record<string, unknown>) {
-  const task = busStore.taskById(session.taskId);
-  if (!task) return;
-  const kind = update.sessionUpdate;
-  const now = new Date().toISOString();
-  if (kind === "agent_message_chunk") {
-    const text = record(update.content).text;
-    if (typeof text === "string") session.agentText += text;
-    const last = session.messages.at(-1);
-    if (last?.role === "agent") last.text = session.agentText;
-    else session.messages.push({ id: `agent:${session.sessionId}`, role: "agent", text: session.agentText, createdAt: now });
-    busStore.upsertTask({ ...task, lastMessage: session.agentText.slice(0, 500), updatedAt: now });
-    return;
+/** 把会话推导出的字段写回任务；`pendingRequest` 没有就删掉，避免旧卡片残留。 */
+function writeSessionRecord(task: BusTask, state: AcpSessionState) {
+  const record = state.record;
+  const next: BusTask = {
+    ...task,
+    title: record.title,
+    status: record.status,
+    updatedAt: record.updatedAt,
+  };
+  if (record.pendingRequest) next.pendingRequest = record.pendingRequest;
+  else delete next.pendingRequest;
+  if (record.lastMessage !== undefined) next.lastMessage = record.lastMessage;
+  busStore.upsertTask(next);
+}
+
+function parseStopReason(value: unknown) {
+  switch (value) {
+    case "end_turn":
+    case "max_tokens":
+    case "max_turn_requests":
+    case "refusal":
+    case "cancelled":
+      return value;
+    default:
+      return undefined;
   }
-  if (kind === "session_info_update" && typeof update.title === "string") {
-    busStore.upsertTask({ ...task, title: update.title.slice(0, 80), updatedAt: now });
-    return;
-  }
-  if (kind === "tool_call") {
-    const title = typeof update.title === "string" ? update.title : "tool";
-    session.messages.push({
-      id: typeof update.toolCallId === "string" ? update.toolCallId : `tool:${session.messages.length}`,
-      role: "tool",
-      text: title,
-      createdAt: now,
+}
+
+/** `session/load`：历史先重放进一份新状态，成功了才替换内存里的；失败保留原来的。 */
+async function loadSessionTranscript(process: AcpProcess, session: LiveSession) {
+  const replay = new AcpSessionState({ ...session.state.record });
+  session.replay = replay;
+  try {
+    await process.call("session/load", {
+      sessionId: session.sessionId,
+      cwd: session.cwd,
+      mcpServers: [],
     });
+  } finally {
+    session.replay = undefined;
   }
+  session.state = replay;
+  const task = busStore.taskById(session.taskId);
+  if (task) writeSessionRecord(task, replay);
 }
 
 async function runPrompt(
   process: AcpProcess,
   taskId: string,
-  commandId: string,
   prompt: string,
   images: AcpImageBlock[] = [],
 ) {
   const session = sessions.get(taskId);
   const task = busStore.taskById(taskId);
   if (!session || !task) return;
-  const now = new Date().toISOString();
-  session.agentText = "";
-  session.messages.push({ id: `user:${commandId}`, role: "user", text: prompt, createdAt: now });
-  busStore.upsertTask({ ...withoutPending(task), status: "running", updatedAt: now });
-  const content: Array<Record<string, unknown>> = [{ type: "text", text: prompt }, ...images];
-  const result = record(
-    await process.call("session/prompt", {
-      sessionId: session.sessionId,
-      prompt: content,
-    }),
-  );
+  session.state.beginTurn(prompt, new Date().toISOString());
+  writeSessionRecord(task, session.state);
+  process.setTurnActive(true);
+  try {
+    const content: Array<Record<string, unknown>> = [{ type: "text", text: prompt }, ...images];
+    const result = record(
+      await process.call("session/prompt", {
+        sessionId: session.sessionId,
+        prompt: content,
+      }),
+    );
+    if (session.state.pending) {
+      process.respond(session.state.pending.rpcId, { outcome: { outcome: "cancelled" } });
+    }
+    session.state.endTurn(parseStopReason(result.stopReason), undefined, new Date().toISOString());
+  } catch (error) {
+    if (session.state.pending) {
+      process.respond(session.state.pending.rpcId, { outcome: { outcome: "cancelled" } });
+    }
+    session.state.endTurn(undefined, messageOf(error), new Date().toISOString());
+  } finally {
+    process.setTurnActive(false);
+  }
   const current = busStore.taskById(taskId);
   if (!current) return;
-  const stop = result.stopReason;
-  const status = stop === "end_turn" ? "completed" : stop === "cancelled" ? "interrupted" : "failed";
-  busStore.upsertTask({ ...withoutPending(current), status, updatedAt: new Date().toISOString() });
-  const refreshed = busStore.taskById(taskId);
-  if (refreshed) emitSessionMessages(taskId, refreshed.agentId, session);
+  writeSessionRecord(current, session.state);
+  emitSessionMessages(taskId, current.agentId, session);
 }
 
 function emitSessionMessages(taskId: string, agentId: string, session: LiveSession) {
-  const userAndAgent = session.messages.filter((message) => message.role !== "tool");
-  const tools = session.messages.filter((message) => message.role === "tool");
+  const all = session.state.transcript.entries();
+  const userAndAgent = all.filter((message) => message.role !== "tool");
+  const tools = all.filter((message) => message.role === "tool");
   const messages = [...userAndAgent.slice(-MAX_USER_MESSAGES), ...tools.slice(-MAX_TOOL_MESSAGES)];
   busStore.emitTaskMessages({
     taskId,
     agentId,
     messages,
-    hasMore: messages.length < session.messages.length,
+    hasMore: messages.length < all.length,
     fetchedAt: new Date().toISOString(),
   });
 }
@@ -2483,7 +2591,11 @@ function failOpenTasks(spec: AgentSpec) {
   for (const session of sessions.values()) {
     const task = busStore.taskById(session.taskId);
     if (!task || specForTask(task)?.id !== spec.id || specForTask(task)?.kind !== spec.kind) continue;
-    if (task.status === "running" || task.status === "waitingApproval") markFailed(session.taskId, "agent exited");
+    if (task.status === "running" || task.status === "waitingApproval") {
+      // 进程没了：这一轮不会再有结果，别让会话状态停在"运行中"挡住下一次续聊。
+      session.state.endTurn(undefined, "agent exited", new Date().toISOString());
+      writeSessionRecord(task, session.state);
+    }
   }
 }
 

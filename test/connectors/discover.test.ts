@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -37,12 +37,13 @@ test("a manifest is found and a missing registry binary is not", async () => {
   const found = await discoverAgents({
     manifestDir: dir,
     entries,
-    locate: (name) => (name === "my-agent" ? "C:/tools/my-agent.cmd" : undefined),
+    locate: (name) =>
+      name === "my-agent" || name === "dsh" ? `C:/tools/${name}.cmd` : undefined,
     dshExecutable: "",
     descriptors: [],
   });
   assert.equal(found.problems.length, 1);
-  assert.match(found.problems[0].reason, /已被占用/);
+  assert.match(found.problems[0].reason, /已被.*占用/);
   const acp = found.agents.filter((agent) => agent.kind === "acp");
   assert.deepEqual(acp.map((agent) => agent.id), ["my-agent"]);
   assert.equal(acp[0].available, true);
@@ -152,4 +153,85 @@ test("an unavailable dedicated connector leaves its ACP adapter listed", async (
   const acp = found.agents.filter((agent) => agent.kind === "acp");
   assert.deepEqual(acp.map((agent) => agent.id), ["codex-acp-local", "gemini"]);
   assert.equal(found.agents.some((agent) => agent.kind === "codex" && agent.available), false);
+});
+
+test("a manifest cannot take the builtin opencode id", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "agent-host-agents-"));
+  try {
+    await writeFile(
+      join(dir, "opencode.json"),
+      JSON.stringify({ id: "opencode", name: "Fake OpenCode", command: "opencode" }),
+    );
+    const entries: RegistryEntry[] = [
+      { id: "opencode", name: "OpenCode", binaries: ["opencode"], args: ["acp"] },
+    ];
+    const found = await discoverAgents({
+      manifestDir: dir,
+      entries,
+      locate: (name) => `C:/tools/${name}`,
+      dshExecutable: "",
+      descriptors: [],
+    });
+    assert.equal(found.problems.length, 1);
+    assert.match(found.problems[0].reason, /内置的 agent 占用/);
+    const acp = found.agents.filter((agent) => agent.kind === "acp");
+    // 清单被拒掉之后，注册表里的内置 OpenCode 照常出现。
+    assert.deepEqual(acp.map((agent) => agent.id), ["opencode"]);
+    assert.equal(acp[0]?.name, "OpenCode");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("an absolute manifest command must be an executable file", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "agent-host-agents-"));
+  try {
+    const executable = join(dir, process.platform === "win32" ? "agent.cmd" : "agent");
+    await writeFile(executable, process.platform === "win32" ? "@echo off\r\n" : "#!/bin/sh\n");
+    await chmod(executable, 0o755);
+    await writeFile(
+      join(dir, "good.json"),
+      JSON.stringify({ id: "good", name: "Good", command: executable }),
+    );
+    await writeFile(
+      join(dir, "missing.json"),
+      JSON.stringify({ id: "missing", name: "Missing", command: join(dir, "no-such-agent") }),
+    );
+    const found = await discoverAgents({
+      manifestDir: dir,
+      entries: [],
+      locate: missing,
+      dshExecutable: "",
+      descriptors: [],
+    });
+    const good = found.agents.find((agent) => agent.id === "good");
+    assert.equal(good?.executable, executable);
+    assert.equal(good?.available, true);
+    assert.equal(found.problems.length, 1);
+    assert.match(found.problems[0].reason, /不存在或不可执行/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a manifest whose relative command is not on PATH is a problem", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "agent-host-agents-"));
+  try {
+    await writeFile(
+      join(dir, "nope.json"),
+      JSON.stringify({ id: "nope", name: "Nope", command: "nope" }),
+    );
+    const found = await discoverAgents({
+      manifestDir: dir,
+      entries: [],
+      locate: missing,
+      dshExecutable: "",
+      descriptors: [],
+    });
+    assert.equal(found.agents.some((agent) => agent.id === "nope"), false);
+    assert.equal(found.problems.length, 1);
+    assert.match(found.problems[0].reason, /找不到 command：nope/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

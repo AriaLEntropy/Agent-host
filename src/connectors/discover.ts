@@ -1,6 +1,8 @@
 import { readdir, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { hostDataDir } from "../config.js";
+import { platformPath } from "../platform/path.js";
 import {
   dedicatedDescriptors,
   type DedicatedDescriptor,
@@ -22,6 +24,11 @@ export const RESERVED_IDS = new Set([
   "codex-acp",
   "pi-acp",
 ]);
+/**
+ * 有内置实现的 ACP agent（`opencode` 直接读本地 SQLite）。清单不许占用这些 id，
+ * 注册表条目照常——它们就是内置实现本身（上游 `AcpDiscovery.builtinAcpIds`）。
+ */
+export const BUILTIN_ACP_IDS = new Set(["opencode"]);
 
 const ID_PATTERN = /^[a-z0-9-]{1,32}$/;
 
@@ -81,8 +88,8 @@ export async function discoverAgents(input: DiscoverInput = {}): Promise<{
       problems.push(loaded.problem);
       continue;
     }
-    if (RESERVED_IDS.has(loaded.spec.id)) {
-      problems.push({ file, reason: `id「${loaded.spec.id}」已被占用，换一个` });
+    if (RESERVED_IDS.has(loaded.spec.id) || BUILTIN_ACP_IDS.has(loaded.spec.id)) {
+      problems.push({ file, reason: `id「${loaded.spec.id}」已被 BotBus 内置的 agent 占用，换一个` });
       continue;
     }
     byId.set(loaded.spec.id, loaded.spec);
@@ -215,7 +222,9 @@ async function loadManifest(
   }
   if (env !== undefined && !stringRecord(env)) return problem("env 必须是字符串到字符串");
   const displayName = name.trim().slice(0, 40);
-  if (command === undefined) {
+  if (command !== undefined && typeof command !== "string") return problem("command 必须是字符串");
+  const rawCommand = typeof command === "string" ? command.trim() : "";
+  if (!rawCommand) {
     return {
       spec: {
         id,
@@ -230,8 +239,29 @@ async function loadManifest(
       },
     };
   }
-  if (typeof command !== "string" || !command) return problem("command 必须是字符串");
-  const executable = locate(command);
+  // `~/bin/agent` 这种写法先展开；绝对路径必须是真正可执行的文件，
+  // 相对名字仍交给 PATH 查找（与上游 `PlatformPath` 的判断一致）。
+  const expanded = expandTilde(rawCommand);
+  if (platformPath.isAbsolute(expanded)) {
+    if (!platformPath.isExecutableFile(expanded)) {
+      return problem(`command 指向的文件不存在或不可执行：${expanded}`);
+    }
+    return {
+      spec: {
+        id,
+        kind: "acp",
+        name: displayName,
+        executable: expanded,
+        args: (args as string[]) ?? [],
+        env: (env as Record<string, string>) ?? {},
+        origin: "manifest",
+        available: true,
+        enabled: true,
+      },
+    };
+  }
+  const executable = locate(expanded);
+  if (!executable) return problem(`找不到 command：${rawCommand}`);
   return {
     spec: {
       id,
@@ -241,11 +271,17 @@ async function loadManifest(
       args: (args as string[]) ?? [],
       env: (env as Record<string, string>) ?? {},
       origin: "manifest",
-      available: Boolean(executable),
+      available: true,
       enabled: true,
-      lastError: executable ? undefined : `找不到 command：${command}`,
     },
   };
+}
+
+/** 展开清单里 `~` / `~/…` 形式的路径（上游 `NSString.expandingTildeInPath`）。 */
+function expandTilde(path: string): string {
+  if (path === "~") return homedir();
+  if (path.startsWith("~/") || path.startsWith("~\\")) return join(homedir(), path.slice(2));
+  return path;
 }
 
 function stringRecord(value: unknown): value is Record<string, string> {

@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, test } from "node:test";
 import { Snapshot } from "../contract/protocol.js";
 import { waitForCommands } from "../../src/bus/commands.js";
@@ -87,6 +91,38 @@ async function until(read: () => boolean) {
     if (Date.now() - started > 5000) throw new Error("timed out");
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
+}
+
+/** 只装一个假 ACP agent；`env` 用来给 fake-acp.mjs 开关行为。 */
+function useFakeAgent(env: Record<string, string> = {}) {
+  useAgents([
+    {
+      id: "my-agent",
+      kind: "acp",
+      name: "My Agent",
+      executable: fake,
+      args: agentArgs(),
+      env,
+      origin: "manifest",
+      available: true,
+      enabled: true,
+    },
+  ]);
+}
+
+function startCommand(id: string, prompt: string) {
+  return {
+    id,
+    createdAt: "2026-10-16T00:00:00Z",
+    agentId,
+    kind: "startTask",
+    startTask: {
+      source: "acp",
+      connectorId: "my-agent",
+      projectPath: "C:/work/demo",
+      prompt,
+    },
+  };
 }
 
 describe("acp runtime", { concurrency: false }, () => {
@@ -368,9 +404,9 @@ describe("acp runtime", { concurrency: false }, () => {
     resetRuntime();
   });
 
-  test("an idle process is closed", async () => {
+  test("a turn waiting for approval is not closed while idle", async () => {
     reset();
-    setIdleMs(400);
+    setIdleMs(1000);
     useAgents([
       {
         id: "my-agent",
@@ -385,7 +421,7 @@ describe("acp runtime", { concurrency: false }, () => {
       },
     ]);
     await post({
-      id: "cmd-idle",
+      id: "cmd-idle-approval",
       createdAt: "2026-10-16T00:00:00Z",
       agentId,
       kind: "startTask",
@@ -397,7 +433,197 @@ describe("acp runtime", { concurrency: false }, () => {
       },
     });
     await until(() => busStore.taskById("acp:my-agent:sess-1")?.status === "waitingApproval");
-    await until(() => busStore.taskById("acp:my-agent:sess-1")?.status === "failed");
+    // 审批可能等上很久：空闲关闭不能把正在等用户的一轮杀掉。
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    assert.equal(busStore.taskById("acp:my-agent:sess-1")?.status, "waitingApproval");
+    const approved = await post({
+      id: "cmd-idle-approve",
+      createdAt: "2026-10-16T00:00:01Z",
+      agentId,
+      kind: "approve",
+      approve: { taskId: "acp:my-agent:sess-1", requestId: "call_01", decision: "allow" },
+    });
+    assert.equal(approved.status, 202);
+    await until(() => busStore.taskById("acp:my-agent:sess-1")?.status === "completed");
+    resetRuntime();
+  });
+
+  test("an idle process is closed after a turn finishes", async () => {
+    reset();
+    const directory = await mkdtemp(join(tmpdir(), "agent-host-acp-idle-"));
+    const callsPath = join(directory, "init.txt");
+    try {
+      setIdleMs(1000);
+      useAgents([
+        {
+          id: "my-agent",
+          kind: "acp",
+          name: "My Agent",
+          executable: fake,
+          args: agentArgs(),
+          env: { FAKE_ACP_INIT_CALLS: callsPath },
+          origin: "manifest",
+          available: true,
+          enabled: true,
+        },
+      ]);
+      await post({
+        id: "cmd-idle-first",
+        createdAt: "2026-10-16T00:00:00Z",
+        agentId,
+        kind: "startTask",
+        startTask: {
+          source: "acp",
+          connectorId: "my-agent",
+          projectPath: "C:/work/demo",
+          prompt: "hello",
+        },
+      });
+      await until(() => busStore.taskById("acp:my-agent:sess-1")?.status === "completed");
+      await until(() => existsSync(callsPath) && readFileSync(callsPath, "utf8") === "x");
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await post({
+        id: "cmd-idle-second",
+        createdAt: "2026-10-16T00:00:01Z",
+        agentId,
+        kind: "startTask",
+        startTask: {
+          source: "acp",
+          connectorId: "my-agent",
+          projectPath: "C:/work/demo",
+          prompt: "ECHO:second",
+        },
+      });
+      // 新进程的 session 计数从 1 重新开始，所以还是 sess-1；若是同一个进程，会拿到 sess-2。
+      await until(() => busStore.taskById("acp:my-agent:sess-1")?.lastMessage === "second");
+      assert.equal(busStore.taskById("acp:my-agent:sess-2"), undefined);
+      assert.equal(readFileSync(callsPath, "utf8"), "xx");
+    } finally {
+      resetRuntime();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("a permission scope answer picks the always option", async () => {
+    reset();
+    useFakeAgent();
+    await post(startCommand("cmd-scope", "NEED_SCOPE"));
+    const taskId = "acp:my-agent:sess-1";
+    await until(() => busStore.taskById(taskId)?.status === "waitingApproval");
+    const pending = busStore.taskById(taskId)?.pendingRequest;
+    assert.equal(pending?.id, "call_scope");
+    assert.equal(pending?.questions?.[0]?.id, "scope");
+    assert.deepEqual(pending?.questions?.[0]?.options.map((option) => option.label), ["仅此一次", "始终允许"]);
+    const approved = await post({
+      id: "cmd-scope-approve",
+      createdAt: "2026-10-16T00:00:01Z",
+      agentId,
+      kind: "approve",
+      approve: {
+        taskId,
+        requestId: "call_scope",
+        decision: "allow",
+        answers: { scope: ["始终允许"] },
+      },
+    });
+    assert.equal(approved.status, 202);
+    await until(() => busStore.taskById(taskId)?.status === "completed");
+    assert.equal(busStore.taskById(taskId)?.lastMessage, "approved:allow-always");
+    assert.equal(busStore.taskById(taskId)?.pendingRequest, undefined);
+    resetRuntime();
+  });
+
+  test("the agent echoing the prompt does not duplicate the user message", async () => {
+    reset();
+    useFakeAgent();
+    await post(startCommand("cmd-echo-self", "ECHO_SELF:hi"));
+    const taskId = "acp:my-agent:sess-1";
+    await until(() => busStore.taskById(taskId)?.status === "completed");
+    const messages = busStore.messagesFor(taskId)?.messages ?? [];
+    const user = messages.filter((message) => message.role === "user");
+    assert.equal(user.length, 1);
+    assert.equal(user[0]?.text, "ECHO_SELF:hi");
+    assert.equal(messages.some((message) => message.role === "agent" && message.text === "已完成"), true);
+    resetRuntime();
+  });
+
+  test("a tool call update keeps a single transcript row", async () => {
+    reset();
+    useFakeAgent();
+    await post(startCommand("cmd-tool", "TOOL_UPDATE"));
+    const taskId = "acp:my-agent:sess-1";
+    await until(() => busStore.taskById(taskId)?.status === "completed");
+    const tools = (busStore.messagesFor(taskId)?.messages ?? []).filter((message) => message.role === "tool");
+    assert.equal(tools.length, 1);
+    assert.equal(tools[0]?.id, "tool-call_tool");
+    assert.equal(tools[0]?.text, "npm test");
+    resetRuntime();
+  });
+
+  test("max_tokens ends the turn as failed with the partial reply", async () => {
+    reset();
+    useFakeAgent();
+    await post(startCommand("cmd-max-tokens", "MAX_TOKENS"));
+    const taskId = "acp:my-agent:sess-1";
+    await until(() => busStore.taskById(taskId)?.status === "failed");
+    assert.equal(busStore.taskById(taskId)?.lastMessage, "partial");
+    assert.equal(busStore.taskById(taskId)?.pendingRequest, undefined);
+    resetRuntime();
+  });
+
+  test("an approve with a stale request id is ignored", async () => {
+    reset();
+    useFakeAgent();
+    await post(startCommand("cmd-stale-approve", "NEED_PERMISSION"));
+    const taskId = "acp:my-agent:sess-1";
+    await until(() => busStore.taskById(taskId)?.status === "waitingApproval");
+    const stale = await post({
+      id: "cmd-stale",
+      createdAt: "2026-10-16T00:00:01Z",
+      agentId,
+      kind: "approve",
+      approve: { taskId, requestId: "call_other", decision: "allow" },
+    });
+    assert.equal(stale.status, 202);
+    assert.equal(busStore.taskById(taskId)?.status, "waitingApproval");
+    assert.equal(busStore.taskById(taskId)?.pendingRequest?.id, "call_01");
+    await post({
+      id: "cmd-fresh",
+      createdAt: "2026-10-16T00:00:02Z",
+      agentId,
+      kind: "approve",
+      approve: { taskId, requestId: "call_01", decision: "allow" },
+    });
+    await until(() => busStore.taskById(taskId)?.status === "completed");
+    resetRuntime();
+  });
+
+  test("a follow-up while a turn is running is rejected", async () => {
+    reset();
+    useFakeAgent();
+    await post(startCommand("cmd-busy", "NEED_PERMISSION"));
+    const taskId = "acp:my-agent:sess-1";
+    await until(() => busStore.taskById(taskId)?.status === "waitingApproval");
+    const follow = await post({
+      id: "cmd-busy-follow",
+      createdAt: "2026-10-16T00:00:01Z",
+      agentId,
+      kind: "followUp",
+      followUp: { taskId, prompt: "ECHO:second" },
+    });
+    assert.equal(follow.status, 202);
+    assert.equal(busStore.taskById(taskId)?.status, "waitingApproval");
+    await post({
+      id: "cmd-busy-approve",
+      createdAt: "2026-10-16T00:00:02Z",
+      agentId,
+      kind: "approve",
+      approve: { taskId, requestId: "call_01", decision: "allow" },
+    });
+    await until(() => busStore.taskById(taskId)?.status === "completed");
+    const user = (busStore.messagesFor(taskId)?.messages ?? []).filter((message) => message.role === "user");
+    assert.equal(user.length, 1);
+    assert.equal(user[0]?.text, "NEED_PERMISSION");
     resetRuntime();
   });
 });

@@ -15,6 +15,7 @@ import {
   executeCommand,
   reconcileAcpSessionsNow,
   resetRuntime,
+  setAcpIdleReconcileInterval,
   setAcpReconcileInterval,
   setAcpReconcileLogger,
   useAgents,
@@ -579,6 +580,80 @@ describe("acp reconcile", { concurrency: false }, () => {
       const after = await callCount(callsPath);
       assert.equal(after, before);
     } finally {
+      reset();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("an idle agent is only reconciled on the idle interval", async () => {
+    reset();
+    const directory = await mkdtemp(join(tmpdir(), "agent-host-acp-idle-list-"));
+    try {
+      const listPath = join(directory, "list.json");
+      const callsPath = join(directory, "calls.txt");
+      const updated = new Date(Date.now() - 60_000).toISOString();
+      await writeList(listPath, [listed("s1", updated)]);
+      setAcpIdleReconcileInterval(10_000);
+      useAgents([
+        makeSpec({
+          id: "my-agent",
+          env: {
+            FAKE_ACP_LIST: "1",
+            FAKE_ACP_LIST_FILE: listPath,
+            FAKE_ACP_LIST_CALLS: callsPath,
+            FAKE_ACP_EXIT_AFTER_LIST: "1",
+          },
+        }),
+      ]);
+      // 手动跑第一拍；假 agent 回完列表就自己退出，模拟"没在跑"。
+      await reconcileAcpSessionsNow();
+      assert.equal(await callCount(callsPath), 1);
+      await sleep(100);
+
+      // 进程已经不在：接下来几拍都不该再为它拉起进程。
+      setAcpReconcileInterval(20);
+      await sleep(200);
+      assert.equal(await callCount(callsPath), 1);
+
+      // 把空闲节流调成跟运行周期一样，下一拍就会重试。
+      setAcpIdleReconcileInterval(0);
+      const started = Date.now();
+      while ((await callCount(callsPath)) <= 1) {
+        if (Date.now() - started > 5000) throw new Error("timed out");
+        await sleep(10);
+      }
+    } finally {
+      reset();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("enabling an agent reconciles it immediately", async () => {
+    reset();
+    const directory = await mkdtemp(join(tmpdir(), "agent-host-acp-enable-"));
+    process.env.AGENT_HOST_CONNECTOR_SETTINGS = join(directory, "connector-settings.json");
+    try {
+      const listPath = join(directory, "list.json");
+      const updated = new Date(Date.now() - 60_000).toISOString();
+      await writeList(listPath, [listed("s1", updated)]);
+      useAgents([
+        makeSpec({
+          id: "my-agent",
+          env: { FAKE_ACP_LIST: "1", FAKE_ACP_LIST_FILE: listPath },
+          enabled: false,
+        }),
+      ]);
+      assert.equal(busStore.taskById("acp:my-agent:s1"), undefined);
+      const enabled = await executeCommand({
+        id: "enable-my-agent",
+        kind: "setConnectorEnabled",
+        setConnectorEnabled: { connector: "acp", connectorId: "my-agent", enabled: true },
+      });
+      assert.equal(enabled.ok, true, enabled.error);
+      // 周期是 0（手动对账），能出现列表项就是启用时那次后台刷新做的。
+      await until(() => busStore.taskById("acp:my-agent:s1") !== undefined);
+    } finally {
+      delete process.env.AGENT_HOST_CONNECTOR_SETTINGS;
       reset();
       await rm(directory, { recursive: true, force: true });
     }
