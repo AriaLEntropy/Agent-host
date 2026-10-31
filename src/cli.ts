@@ -33,7 +33,6 @@ import {
   logPublic,
   shutdownLogging,
 } from "./platform/log.js";
-import { openInBrowser, startSettingsServer } from "./platform/settings-server.js";
 import { pair } from "./tunnel/pairing.js";
 import { RelayClient } from "./tunnel/relay-client.js";
 import { PLUGIN_VERSION } from "./tunnel/version.js";
@@ -255,37 +254,6 @@ logsCommand
     });
     await shutdownLogging();
     console.log(`Diagnostics written to ${out}`);
-  });
-
-program
-  .command("settings")
-  .description("Open a loopback settings page with the diagnostics export button")
-  .option("--port <port>", "loopback port (default: random)", "0")
-  .option("--no-open", "print the URL instead of opening a browser")
-  .action(async (options: { port: string; open: boolean }) => {
-    const port = Number(options.port);
-    if (!Number.isInteger(port) || port < 0 || port > 65535) {
-      throw new Error("端口必须是 0 到 65535 之间的整数");
-    }
-    const config = await prepare();
-    const server = await startSettingsServer({ config, port });
-    console.log(`Settings: ${server.url}`);
-    if (options.open && !openInBrowser(server.url)) {
-      console.log("无法自动打开浏览器，请手动访问上面的地址。");
-    }
-    let stopping = false;
-    const stop = async () => {
-      if (stopping) return;
-      stopping = true;
-      try {
-        await server.close();
-        await shutdownLogging();
-      } finally {
-        process.exit(0);
-      }
-    };
-    process.on("SIGINT", () => void stop());
-    process.on("SIGTERM", () => void stop());
   });
 
 const agentCommand = program
