@@ -167,6 +167,38 @@ rl.on("line", (line) => {
         },
       });
     }
+    if (text.includes("IMAGE_REPLY")) {
+      send({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: message.params.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "生成了一张图" },
+          },
+        },
+      });
+      send({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: message.params.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "image",
+              // 1×1 PNG
+              data:
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+              mimeType: "image/png",
+            },
+          },
+        },
+      });
+      send({ jsonrpc: "2.0", id: message.id, result: { stopReason: "end_turn" } });
+      return;
+    }
     if (text.includes("MAX_TOKENS")) {
       send({
         jsonrpc: "2.0",

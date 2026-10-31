@@ -152,6 +152,43 @@ test("endTurn records the reply, or an explanation when the stop reason failed",
   assert.equal(crashed.record.lastMessage, "agent exited");
 });
 
+test("image chunks stay on the transcript entry and image-only prompts are not echoed", () => {
+  const state = new AcpSessionState(record());
+  const userImage = { type: "data" as const, data: Buffer.from([1, 2, 3]), contentType: "image/png" };
+  state.beginTurn("", "t1", [userImage]);
+  const agentUpdate = parseSessionUpdate({
+    sessionUpdate: "agent_message_chunk",
+    content: { type: "image", data: Buffer.from([9, 8]).toString("base64"), mimeType: "image/png" },
+  });
+  assert.deepEqual(agentUpdate, {
+    kind: "agentMessage",
+    text: "",
+    images: [{ base64: Buffer.from([9, 8]).toString("base64"), mimeType: "image/png" }],
+  });
+  state.apply(agentUpdate, "t2");
+
+  // prompt 只有图：agent 回显 user_message_chunk（哪怕是图）也算自己发的，丢掉。
+  state.apply(
+    parseSessionUpdate({
+      sessionUpdate: "user_message_chunk",
+      content: { type: "image", data: userImage.data.toString("base64"), mimeType: "image/png" },
+    }),
+    "t3",
+  );
+
+  const entries = state.transcript.transcriptEntries();
+  assert.equal(entries.length, 2);
+  assert.equal(entries[0]!.message.role, "user");
+  assert.equal(entries[0]!.message.text, "");
+  assert.equal(entries[0]!.images.length, 1);
+  assert.deepEqual(entries[0]!.images[0], userImage);
+  assert.equal(entries[1]!.message.role, "agent");
+  assert.equal(entries[1]!.images.length, 1);
+  // 只要消息的旧入口仍然不包含图片。
+  assert.equal(state.transcript.entries()[0]!.text, "");
+  assert.equal(state.transcript.entries()[0]!.attachments, undefined);
+});
+
 test("a title set from the first prompt is not replaced by a later prompt", () => {
   const state = new AcpSessionState(record({ title: "demo", projectName: "demo" }));
   state.beginTurn("first prompt", "t1");

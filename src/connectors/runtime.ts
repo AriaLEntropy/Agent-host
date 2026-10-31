@@ -20,6 +20,7 @@ import {
   putArtifact,
   resolveAttachment,
 } from "../bus/artifacts.js";
+import { imagesForMessage } from "../bus/conversation-images.js";
 import { hostDataDir } from "../config.js";
 import {
   optionIdFor,
@@ -1575,10 +1576,15 @@ async function filesForEntry(
 }
 
 /**
- * 读取器条目 → 协议消息。只给 Agent 回复补 `files`；用户消息与工具行原样。
+ * 读取器条目 → 协议消息。图片落进本机产物并填 `attachments`（FR-14.5.1），
+ * 再给 Agent 回复补 `files`；用户消息与工具行原样。
  * `previous` 是上一次下发过的消息，用来复用已取回的 `artifactId`。
+ *
+ * 读取器可能保留「只有图」的消息：图这次读不到、又没有文字和文件时丢掉，
+ * 免得手机收到一个空气泡；有文字的消息不受影响。
  */
 async function messagesFromEntries(
+  taskId: string,
   entries: readonly TranscriptEntry[],
   projectPath: string | undefined,
   previous?: readonly BusMessage[],
@@ -1587,7 +1593,19 @@ async function messagesFromEntries(
   const messages: BusMessage[] = [];
   for (const entry of entries) {
     const files = await filesForEntry(entry, projectPath, previous, fetched);
-    messages.push(files.length > 0 ? { ...entry.message, files } : entry.message);
+    const attachments =
+      entry.images.length > 0
+        ? await imagesForMessage(taskId, entry.message.id, entry.images)
+        : [];
+    const message: BusMessage = { ...entry.message };
+    if (attachments.length > 0) message.attachments = attachments;
+    if (files.length > 0) message.files = files;
+    const visible =
+      message.role === "tool" ||
+      message.text.trim().length > 0 ||
+      (message.attachments?.length ?? 0) > 0 ||
+      (message.files?.length ?? 0) > 0;
+    if (visible) messages.push(message);
   }
   return messages;
 }
@@ -1696,7 +1714,7 @@ async function fetchFile(commandId: string, payload: Record<string, unknown>): P
   }
 
   // 先发消息再回执：手机收到 ok 时卡片已经带上 id。
-  const messages = await messagesFromEntries(entries, projectPath, previous, {
+  const messages = await messagesFromEntries(taskId, entries, projectPath, previous, {
     messageId,
     path: requestedPath,
     artifactId,
@@ -1741,7 +1759,7 @@ async function fetchMessages(commandId: string, payload: Record<string, unknown>
     busStore.emitTaskMessages({ ...stored, fetchedAt: new Date().toISOString() });
     return done(commandId, true, undefined, taskId);
   }
-  emitSessionMessages(taskId, task.agentId, liveSession);
+  await emitSessionMessages(taskId, task.agentId, liveSession);
   return done(commandId, true, undefined, taskId);
 }
 
@@ -1770,6 +1788,7 @@ async function readOpenCodeMessages(
       taskId,
       agentId,
       messages: await messagesFromEntries(
+        taskId,
         entries,
         busStore.taskById(taskId)?.projectPath,
         busStore.messagesFor(taskId)?.messages,
@@ -1969,6 +1988,7 @@ async function dedicatedFetchMessages(
     agentId: task?.agentId ?? busStore.agentId(),
     // Agent 回复里提到的本机文件：未取回时不带 artifactId，取回后由 fetchFile 补。
     messages: await messagesFromEntries(
+      taskId,
       entries,
       task?.projectPath,
       busStore.messagesFor(taskId)?.messages,
@@ -2364,6 +2384,7 @@ async function dshFetchMessages(
     agentId: task?.agentId ?? busStore.agentId(),
     // Agent 回复里提到的本机文件：未取回时不带 artifactId，取回后由 fetchFile 补。
     messages: await messagesFromEntries(
+      taskId,
       entries,
       task?.projectPath,
       busStore.messagesFor(taskId)?.messages,
@@ -2544,7 +2565,13 @@ async function runPrompt(
   const session = sessions.get(taskId);
   const task = busStore.taskById(taskId);
   if (!session || !task) return;
-  session.state.beginTurn(prompt, new Date().toISOString());
+  // 自己发的图也记进这一轮的对话：重放或下次拉取时手机仍能看到用户发过的图。
+  const imageSources: ImageSource[] = images.map((block) => ({
+    type: "data",
+    data: Buffer.from(block.data, "base64"),
+    contentType: block.mimeType,
+  }));
+  session.state.beginTurn(prompt, new Date().toISOString(), imageSources);
   writeSessionRecord(task, session.state);
   process.setTurnActive(true);
   try {
@@ -2570,19 +2597,25 @@ async function runPrompt(
   const current = busStore.taskById(taskId);
   if (!current) return;
   writeSessionRecord(current, session.state);
-  emitSessionMessages(taskId, current.agentId, session);
+  await emitSessionMessages(taskId, current.agentId, session);
 }
 
-function emitSessionMessages(taskId: string, agentId: string, session: LiveSession) {
-  const all = session.state.transcript.entries();
-  const userAndAgent = all.filter((message) => message.role !== "tool");
-  const tools = all.filter((message) => message.role === "tool");
-  const messages = [...userAndAgent.slice(-MAX_USER_MESSAGES), ...tools.slice(-MAX_TOOL_MESSAGES)];
+async function emitSessionMessages(taskId: string, agentId: string, session: LiveSession) {
+  const all = session.state.transcript.transcriptEntries();
+  const userAndAgent = all.filter((entry) => entry.message.role !== "tool");
+  const tools = all.filter((entry) => entry.message.role === "tool");
+  const selected = [...userAndAgent.slice(-MAX_USER_MESSAGES), ...tools.slice(-MAX_TOOL_MESSAGES)];
+  const messages = await messagesFromEntries(
+    taskId,
+    selected,
+    busStore.taskById(taskId)?.projectPath,
+    busStore.messagesFor(taskId)?.messages,
+  );
   busStore.emitTaskMessages({
     taskId,
     agentId,
     messages,
-    hasMore: messages.length < all.length,
+    hasMore: selected.length < all.length,
     fetchedAt: new Date().toISOString(),
   });
 }

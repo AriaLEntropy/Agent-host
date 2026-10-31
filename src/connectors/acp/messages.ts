@@ -64,8 +64,8 @@ export type AcpPermissionRequest = {
 };
 
 export type AcpSessionUpdate =
-  | { kind: "userMessage"; text: string }
-  | { kind: "agentMessage"; text: string }
+  | { kind: "userMessage"; text: string; images: AcpImage[] }
+  | { kind: "agentMessage"; text: string; images: AcpImage[] }
   | { kind: "thought" }
   | { kind: "toolCall"; call: AcpToolCall }
   | { kind: "toolCallUpdate"; call: AcpToolCall }
@@ -76,10 +76,14 @@ export type AcpSessionUpdate =
 export function parseSessionUpdate(update: Record<string, unknown>): AcpSessionUpdate {
   const type = typeof update.sessionUpdate === "string" ? update.sessionUpdate : "";
   switch (type) {
-    case "user_message_chunk":
-      return { kind: "userMessage", text: textContent(update.content) };
-    case "agent_message_chunk":
-      return { kind: "agentMessage", text: textContent(update.content) };
+    case "user_message_chunk": {
+      const content = contentOf(update.content);
+      return { kind: "userMessage", text: content.text, images: content.images };
+    }
+    case "agent_message_chunk": {
+      const content = contentOf(update.content);
+      return { kind: "agentMessage", text: content.text, images: content.images };
+    }
     case "agent_thought_chunk":
       return { kind: "thought" };
     case "tool_call": {
@@ -261,10 +265,24 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
-/** `content` 是单个 ContentBlock；只有 text 块给出文字。 */
-function textContent(value: unknown): string {
+/**
+ * `content` 是单个 ContentBlock：text 块给文字，image 块给图（base64 + mimeType）。
+ * 其余类型（resource、audio 等）一律当空，不影响同一轮里的其他片段。
+ */
+function contentOf(value: unknown): { text: string; images: AcpImage[] } {
   const block = record(value);
-  return block.type === "text" && typeof block.text === "string" ? block.text : "";
+  if (block.type === "text") {
+    return { text: typeof block.text === "string" ? block.text : "", images: [] };
+  }
+  if (
+    block.type === "image" &&
+    typeof block.data === "string" &&
+    block.data.length > 0 &&
+    typeof block.mimeType === "string"
+  ) {
+    return { text: "", images: [{ base64: block.data, mimeType: block.mimeType }] };
+  }
+  return { text: "", images: [] };
 }
 
 function rawInputText(value: unknown): string | undefined {

@@ -9,7 +9,8 @@
  * (`AcpTranscript`; Apache-2.0). Behaviour-preserving TypeScript port for Agent-host.
  */
 import type { BusMessage } from "../../bus/store.js";
-import { mergeToolCall, truncate, type AcpToolCall } from "./messages.js";
+import type { ImageSource, TranscriptEntry } from "../ported/contract.js";
+import { mergeToolCall, truncate, type AcpImage, type AcpToolCall } from "./messages.js";
 
 /** 上游 `AcpTranscript.maxEntries`：内存里最多留这么多条，超出的从最早的丢。 */
 export const ACP_TRANSCRIPT_MAX_ENTRIES = 500;
@@ -17,7 +18,30 @@ export const ACP_TRANSCRIPT_MAX_ENTRIES = 500;
 /** 工具行正文上限（上游 `maxToolTextLength`）。 */
 export const MAX_TOOL_TEXT_LENGTH = 200;
 
-type Item = { id: string; role: BusMessage["role"]; text: string; createdAt: string };
+type Item = {
+  id: string;
+  role: BusMessage["role"];
+  text: string;
+  images: ImageSource[];
+  createdAt: string;
+};
+
+/**
+ * ACP 的图片块 → 读取器认的 `ImageSource`。类型必须是 `image/*` 且 base64
+ * 解得出非空字节；其余当没有这张图，不占位也不让整条消息失败。
+ */
+export function imageSources(images: readonly AcpImage[]): ImageSource[] {
+  const result: ImageSource[] = [];
+  for (const image of images) {
+    const contentType = image.mimeType.trim().toLowerCase();
+    if (!contentType.startsWith("image/") || contentType.length <= "image/".length) continue;
+    if (!image.base64.trim()) continue;
+    const data = Buffer.from(image.base64, "base64");
+    if (data.length === 0) continue;
+    result.push({ type: "data", data, contentType });
+  }
+  return result;
+}
 
 export class AcpTranscript {
   private items: Item[] = [];
@@ -46,11 +70,17 @@ export class AcpTranscript {
     this.pendingNewTurn = true;
   }
 
-  appendText(role: "user" | "agent", text: string, createdAt: string) {
-    if (!text) return;
+  appendText(
+    role: "user" | "agent",
+    text: string,
+    images: readonly ImageSource[],
+    createdAt: string,
+  ) {
+    if (!text && images.length === 0) return;
     const last = this.items.at(-1);
     if (last && last.role === role && !this.pendingNewTurn) {
       last.text += text;
+      last.images.push(...images);
       return;
     }
     if (role === "user" || this.pendingNewTurn) {
@@ -59,7 +89,7 @@ export class AcpTranscript {
     }
     this.segment += 1;
     this.pendingNewTurn = false;
-    this.items.push({ id: `${this.turn}-${this.segment}`, role, text, createdAt });
+    this.items.push({ id: `${this.turn}-${this.segment}`, role, text, images: [...images], createdAt });
     this.trim();
   }
 
@@ -72,7 +102,7 @@ export class AcpTranscript {
       this.items[existing]!.text = text;
       return;
     }
-    this.items.push({ id, role: "tool", text, createdAt });
+    this.items.push({ id, role: "tool", text, images: [], createdAt });
     this.trim();
   }
 
@@ -81,12 +111,22 @@ export class AcpTranscript {
     this.tool(base ? mergeToolCall(base, update) : update, createdAt);
   }
 
+  /** 只要消息的调用方（测试、旧接口）：图片被丢掉，`Message.attachments` 也不会有。 */
   entries(): BusMessage[] {
+    return this.transcriptEntries().map((entry) => entry.message);
+  }
+
+  /** 外发用：消息加上图片（FR-14.5.1），由 runtime 落进产物目录再填 `attachments`。 */
+  transcriptEntries(): TranscriptEntry[] {
     return this.items.map((item) => ({
-      id: item.id,
-      role: item.role,
-      text: item.role === "tool" ? truncate(item.text, MAX_TOOL_TEXT_LENGTH) : item.text.trim(),
-      createdAt: item.createdAt,
+      message: {
+        id: item.id,
+        role: item.role,
+        text: item.role === "tool" ? truncate(item.text, MAX_TOOL_TEXT_LENGTH) : item.text.trim(),
+        createdAt: item.createdAt,
+      },
+      images: item.images,
+      pathCandidates: [],
     }));
   }
 

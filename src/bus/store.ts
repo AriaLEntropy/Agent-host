@@ -66,11 +66,26 @@ export type BusMessageFileRef = {
   artifactId?: string;
 };
 
+/**
+ * 协议 2.9 的 `MessageAttachment`：对话里的一张图。字节在本机产物目录，这里只是引用；
+ * `artifactId` 由本机随机密钥对（会话、消息、来源）做 HMAC 得出，重复拉取时不变。
+ */
+export type BusMessageAttachment = {
+  artifactId: string;
+  contentType: string;
+  /** 产物里的字节数。 */
+  size: number;
+  width?: number;
+  height?: number;
+};
+
 export type BusMessage = {
   id: string;
   role: "user" | "agent" | "tool";
   text: string;
   createdAt: string;
+  /** 协议 2.9：消息里的图（用户发的或 Agent 生成的），最多 4 张。 */
+  attachments?: BusMessageAttachment[];
   /** 协议 2.9：Agent 回复里提到本机文件，最多 4 个。 */
   files?: BusMessageFileRef[];
 };

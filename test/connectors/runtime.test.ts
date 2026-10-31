@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { Snapshot } from "../contract/protocol.js";
+import { setArtifactKeyPath } from "../../src/bus/artifact-key.js";
+import { getArtifact, putUpload, setArtifactsDir } from "../../src/bus/artifacts.js";
 import { waitForCommands } from "../../src/bus/commands.js";
 import { routeBus } from "../../src/bus/router.js";
 import { busStore } from "../../src/bus/store.js";
@@ -596,6 +599,83 @@ describe("acp runtime", { concurrency: false }, () => {
     });
     await until(() => busStore.taskById(taskId)?.status === "completed");
     resetRuntime();
+  });
+
+  test("conversation images become local artifacts with stable ids", async () => {
+    reset();
+    const directory = await mkdtemp(join(tmpdir(), "agent-host-acp-images-"));
+    setArtifactsDir(join(directory, "artifacts"));
+    setArtifactKeyPath(join(directory, "artifact-key"));
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    try {
+      useFakeAgent({ FAKE_ACP_IMAGE: "1" });
+      // 用户发一张图：上传后的 artifactId 先落本机，再随 startTask 送进 ACP。
+      const uploadId = randomBytes(16).toString("base64url");
+      await putUpload(uploadId, png, "image/png");
+      const started = await post({
+        id: "cmd-user-image",
+        createdAt: "2026-10-16T00:00:00Z",
+        agentId,
+        kind: "startTask",
+        startTask: {
+          source: "acp",
+          connectorId: "my-agent",
+          projectPath: "C:/work/demo",
+          prompt: "hello",
+          attachments: [{ artifactId: uploadId }],
+        },
+      });
+      assert.equal(started.status, 202);
+      const taskId = "acp:my-agent:sess-1";
+      await until(
+        () =>
+          (busStore.messagesFor(taskId)?.messages ?? []).some(
+            (message) => message.role === "user" && (message.attachments?.length ?? 0) > 0,
+          ),
+      );
+      const first = busStore.messagesFor(taskId)!.messages;
+      const user = first.find((message) => message.role === "user")!;
+      const userArtifact = user.attachments![0]!;
+      assert.match(userArtifact.artifactId, /^[A-Za-z0-9_-]{22}$/);
+      assert.equal(userArtifact.contentType, "image/png");
+      assert.equal(userArtifact.size, png.length);
+      assert.ok(await getArtifact(userArtifact.artifactId));
+
+      // 再拉一次：同一条消息的图 id 不变。
+      await post({
+        id: "cmd-fetch-images",
+        createdAt: "2026-10-16T00:00:01Z",
+        agentId,
+        kind: "fetchMessages",
+        fetchMessages: { taskId },
+      });
+      const again = busStore.messagesFor(taskId)!.messages.find((message) => message.role === "user")!;
+      assert.equal(again.attachments![0]!.artifactId, userArtifact.artifactId);
+
+      // Agent 生成的图也落进产物目录。
+      await post(startCommand("cmd-agent-image", "IMAGE_REPLY"));
+      const agentTask = "acp:my-agent:sess-2";
+      await until(
+        () =>
+          (busStore.messagesFor(agentTask)?.messages ?? []).some(
+            (message) => message.role === "agent" && (message.attachments?.length ?? 0) > 0,
+          ),
+      );
+      const agent = busStore.messagesFor(agentTask)!.messages.find(
+        (message) => message.role === "agent" && (message.attachments?.length ?? 0) > 0,
+      )!;
+      const agentArtifact = agent.attachments![0]!;
+      assert.equal(agentArtifact.contentType, "image/png");
+      assert.equal((await getArtifact(agentArtifact.artifactId))?.bytes.length, png.length);
+    } finally {
+      setArtifactsDir(undefined);
+      setArtifactKeyPath(undefined);
+      resetRuntime();
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   test("a follow-up while a turn is running is rejected", async () => {

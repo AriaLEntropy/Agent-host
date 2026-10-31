@@ -18,11 +18,23 @@ import {
 test("session updates parse text, tool calls and unknown types without throwing", () => {
   assert.deepEqual(
     parseSessionUpdate({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hi" } }),
-    { kind: "agentMessage", text: "hi" },
+    { kind: "agentMessage", text: "hi", images: [] },
   );
   assert.deepEqual(
     parseSessionUpdate({ sessionUpdate: "user_message_chunk", content: { type: "text", text: "me" } }),
-    { kind: "userMessage", text: "me" },
+    { kind: "userMessage", text: "me", images: [] },
+  );
+  // 图片块：文字为空、图片带上 base64 与类型；缺字段的坏块当空。
+  assert.deepEqual(
+    parseSessionUpdate({
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "image", data: "AAEC", mimeType: "image/png" },
+    }),
+    { kind: "agentMessage", text: "", images: [{ base64: "AAEC", mimeType: "image/png" }] },
+  );
+  assert.deepEqual(
+    parseSessionUpdate({ sessionUpdate: "agent_message_chunk", content: { type: "image" } }),
+    { kind: "agentMessage", text: "", images: [] },
   );
   assert.deepEqual(parseSessionUpdate({ sessionUpdate: "agent_thought_chunk" }), { kind: "thought" });
   assert.deepEqual(parseSessionUpdate({ sessionUpdate: "plan" }), { kind: "other", type: "plan" });

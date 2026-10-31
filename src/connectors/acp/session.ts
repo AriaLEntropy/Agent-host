@@ -23,7 +23,8 @@ import {
   type AcpStopReason,
   type AcpToolCall,
 } from "./messages.js";
-import { AcpTranscript } from "./transcript.js";
+import type { ImageSource } from "../ported/contract.js";
+import { AcpTranscript, imageSources } from "./transcript.js";
 
 export const ACP_SUMMARY_LIMIT = 200;
 export const ACP_TITLE_LIMIT = 80;
@@ -66,9 +67,9 @@ export class AcpSessionState {
     this.titleLocked = record.title !== record.projectName && record.title !== "";
   }
 
-  beginTurn(prompt: string, at: string) {
+  beginTurn(prompt: string, at: string, images: readonly ImageSource[] = []) {
     this.transcript.startTurn();
-    this.transcript.appendText("user", prompt, at);
+    this.transcript.appendText("user", prompt, images, at);
     const line = singleLine(prompt);
     if (!this.titleLocked && line) {
       this.record.title = truncate(line, ACP_TITLE_LIMIT);
@@ -77,7 +78,7 @@ export class AcpSessionState {
     this.running = true;
     this.turnText = "";
     this.pending = undefined;
-    this.promptRecordedThisTurn = prompt.length > 0;
+    this.promptRecordedThisTurn = prompt.length > 0 || images.length > 0;
     delete this.record.pendingRequest;
     this.record.status = "running";
     this.record.updatedAt = at;
@@ -91,11 +92,11 @@ export class AcpSessionState {
         // 这一轮的 prompt 是 BotBus 自己发的，agent 常把它原样回显——运行中且已经记过
         // prompt 时，这条八成是回显，不是新消息。
         if (this.running && this.promptRecordedThisTurn) break;
-        this.transcript.appendText("user", update.text, at);
+        this.transcript.appendText("user", update.text, imageSources(update.images), at);
         break;
       }
       case "agentMessage":
-        this.transcript.appendText("agent", update.text, at);
+        this.transcript.appendText("agent", update.text, imageSources(update.images), at);
         if (this.running) this.turnText += update.text;
         break;
       case "toolCall": {
