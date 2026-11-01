@@ -95,7 +95,8 @@ export class TrayPanel {
     win.on("blur", () => {
       // 从托盘溢出层弹出时，系统收起飞出层会先抢一次焦点；
       // 300ms 内的 blur 不算「点了面板外」
-      if (this.dialogOpen || Date.now() - this.shownAt < 300) return;
+      // 还没显示时的 blur 不算「点外面」；显示后的 300ms 内也不关
+      if (!this.shown || this.dialogOpen || Date.now() - this.shownAt < 300) return;
       this.close();
     });
     win.on("closed", () => {
@@ -146,10 +147,9 @@ export class TrayPanel {
     const work = screen.getDisplayNearestPoint(point).workArea;
     const width = PANEL_WIDTH;
     const maxX = work.x + work.width - width - EDGE_GAP;
-    // 面板贴着托盘图标左侧，避免盖住 Windows 的托盘溢出层
-    const leftOfAnchor = Math.round(anchor.x - width - 10);
+    // 以托盘图标为中心、贴边时回退到工作区边距
     const centered = Math.round(anchor.x + anchor.width / 2 - width / 2);
-    const x = Math.min(Math.max(leftOfAnchor >= work.x + EDGE_GAP ? leftOfAnchor : centered, work.x + EDGE_GAP), maxX);
+    const x = Math.min(Math.max(centered, work.x + EDGE_GAP), maxX);
     // 任务栏在底部时固定贴着工作区底边，不再依赖托盘图标上报的坐标
     const display = screen.getDisplayNearestPoint(point);
     const taskbarAtBottom = work.y + work.height < display.bounds.y + display.bounds.height;

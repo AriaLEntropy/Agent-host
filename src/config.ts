@@ -12,6 +12,10 @@ export type Config = {
   relay: string;
   publicRelayUrl?: string;
   dshPort: number;
+  /** FR-14.6.3：手机新建项目的父目录；空表示不允许手机新建项目 */
+  projectsRoot?: string;
+  /** 关闭后不向上报 projectsRoot，手机不显示「新建项目」 */
+  allowMobileNewProjects?: boolean;
 };
 
 function defaultPath() {

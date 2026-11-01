@@ -19,4 +19,11 @@ await cp(
   join(here, "../src/desktop/pairing-preload.cjs"),
   join(here, "../dist/desktop/pairing-preload.cjs"),
 );
+await cp(join(here, "../src/desktop/settings"), join(here, "../dist/desktop/settings"), {
+  recursive: true,
+});
+await cp(
+  join(here, "../src/desktop/settings-preload.cjs"),
+  join(here, "../dist/desktop/settings-preload.cjs"),
+);
 await cp(join(here, "../src/desktop/preload.cjs"), join(here, "../dist/desktop/preload.cjs"));

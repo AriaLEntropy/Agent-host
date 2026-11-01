@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentBus 设置</title>
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    --panel:#F5F5F7; --text:#1D1B20; --sub:#57534E; --muted:#8E8E93;
+    --line:rgba(29,27,32,.08); --hover:rgba(29,27,32,.05); --field:#FFFFFF;
+    --track-off:#E4E4E7; --track-on:#1D1B20; --knob:#FFFFFF;
+    --ok:#557A63; --warn:#9A6A1F; --dot-warn:#C98A2E; --danger:#D92D20;
+    --icon-bg:#ECECEF;
+  }
+  html.dark {
+    --panel:#1C1C1E; --text:#F2F2F7; --sub:#C7C7CC; --muted:#8E8E93;
+    --line:rgba(255,255,255,.10); --hover:rgba(255,255,255,.06); --field:#2C2C2E;
+    --track-off:#3A3A3C; --track-on:#F2F2F7; --knob:#1C1C1E;
+    --ok:#7FA98D; --warn:#E0B15C; --dot-warn:#E0B15C; --danger:#FF6961;
+    --icon-bg:#2C2C2E;
+  }
+  html, body {
+    margin:0; background:transparent;
+    font-family:"Segoe UI Variable Text","Segoe UI",-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased; user-select:none;
+  }
+  .win {
+    width:720px; height:560px; display:flex; flex-direction:column;
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    overflow:hidden; color:var(--text);
+  }
+  .w-title { flex:none; height:40px; display:flex; align-items:center; gap:8px; padding:0 10px 0 14px; border-bottom:1px solid var(--line); -webkit-app-region:drag; }
+  .w-title .t { font-size:13px; font-weight:600; }
+  .w-title .drag { flex:1; height:100%; }
+  .w-close { width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--sub); -webkit-app-region:no-drag; }
+  .w-close:hover { background:var(--hover); color:var(--text); }
+  .s-main { flex:1; min-height:0; display:flex; }
+  .s-nav { flex:none; width:168px; border-right:1px solid var(--line); padding:8px 6px; display:flex; flex-direction:column; gap:1px; }
+  .ni { padding:7px 9px; border-radius:7px; font-size:12.5px; color:var(--sub); cursor:pointer; }
+  .ni:hover { background:var(--hover); }
+  .ni.on { background:var(--text); color:var(--panel); font-weight:600; }
+  .s-body { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:14px 18px; }
+  .s-body::-webkit-scrollbar { width:8px; }
+  .s-body::-webkit-scrollbar-thumb { background:rgba(140,140,150,.42); border-radius:4px; border:2px solid transparent; background-clip:padding-box; }
+  .s-h { font-size:14px; font-weight:600; margin:0 0 3px; }
+  .s-sub { font-size:11px; color:var(--muted); margin:0 0 14px; line-height:1.6; }
+  .grp { margin:16px 0 6px; font-size:10.5px; color:var(--muted); }
+  .setrow { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); }
+  .setrow:last-child { border-bottom:none; }
+  .setrow .k { flex:1; min-width:0; }
+  .setrow .k b { display:block; font-size:12.5px; font-weight:500; }
+  .setrow .k span { display:block; font-size:10.5px; color:var(--muted); margin-top:2px; line-height:1.5; }
+  .well { background:var(--field); border:1px solid var(--line); border-radius:8px; padding:9px 10px; font-size:11px; color:var(--sub); line-height:1.6; word-break:break-all; }
+  .btn { font:inherit; font-size:12px; border-radius:7px; padding:6px 12px; cursor:pointer; border:1px solid var(--line); background:var(--field); color:var(--sub); }
+  .btn:hover { color:var(--text); background:var(--hover); }
+  .btn.pri { background:var(--track-on); color:var(--knob); border-color:transparent; }
+  html.dark .btn.pri { color:#1C1C1E; }
+  .btn.pri[disabled] { opacity:.4; cursor:not-allowed; }
+  .btn.dgr { color:var(--danger); }
+  .btn.busy { opacity:.6; cursor:progress; }
+  .fld { width:100%; font:inherit; font-size:12px; color:var(--text); background:var(--field); border:1px solid var(--line); border-radius:7px; padding:7px 9px; }
+  .fld:focus { outline:none; border-color:var(--muted); }
+  .frow { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .sp { flex:1; }
+  .inline-err { font-size:10.5px; line-height:1.5; color:var(--danger); margin-top:5px; word-break:break-all; }
+  .inline-ok { font-size:10.5px; line-height:1.5; color:var(--ok); margin-top:5px; }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--muted); flex:none; }
+  .dot.connected { background:var(--ok); }
+  .dot.disconnected { background:var(--dot-warn); }
+  .row-i { display:flex; align-items:center; gap:8px; padding:5px 6px; border-radius:7px; cursor:pointer; }
+  .row-i:hover { background:var(--hover); }
+  .row-i.dis { cursor:default; opacity:.52; }
+  .row-i.dis:hover { background:transparent; }
+  .ico { width:22px; height:22px; border-radius:50%; overflow:hidden; background:var(--icon-bg); flex:none; }
+  .ico img { width:100%; height:100%; object-fit:cover; display:block; }
+  .txt { flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
+  .top { display:flex; align-items:center; gap:6px; min-width:0; }
+  .nm { flex:1; min-width:0; font-size:12.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .st { font-size:10.5px; color:var(--muted); white-space:nowrap; flex:none; }
+  .st.err { color:var(--danger); }
+  .st.off { color:var(--warn); }
+  .el { font-size:10.5px; line-height:14px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dt { border:none; background:transparent; font:inherit; font-size:10.5px; color:var(--muted); padding:0 2px; cursor:pointer; flex:none; }
+  .dt:hover { color:var(--text); text-decoration:underline; }
+  .sw { position:relative; width:30px; height:18px; border-radius:9px; background:var(--track-off); flex:none; }
+  .sw::after { content:""; position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:var(--knob); box-shadow:0 1px 2px rgba(0,0,0,.25); }
+  .sw.on { background:var(--track-on); }
+  .sw.on::after { transform:translateX(12px); }
+  .sw.dis { opacity:.35; }
+  .problem { padding:2px 0; font-size:10.5px; color:var(--muted); line-height:1.45; word-break:break-all; }
+  .problem b { display:block; font-weight:600; color:var(--sub); }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div class="win">
+  <div class="w-title">
+    <span class="t">AgentBus 设置</span><span class="drag"></span>
+    <span class="w-close" id="close" title="关闭">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </span>
+  </div>
+  <div class="s-main">
+    <div class="s-nav" id="nav"></div>
+    <div class="s-body" id="body"></div>
+  </div>
+</div>
+<script>
+  const api = window.agentbusSettings;
+  const NAV = ["连接", "本机 Agent", "项目", "通用", "诊断"];
+  let active = "连接";
+  let view = null;
+  let tested = false;
+  let testBusy = false;
+  let busyExport = false;
+  let lastExport = "";
+  let diagError = "";
+
+  function esc(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  function alertIcon() {
+    return '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.4v.1"/></svg>';
+  }
+  function stateLabel() {
+    if (!view.relayConfigured) return "未配置 Relay";
+    if (view.connection === "unpaired") return "未配对";
+    if (view.connection === "disconnected") return "连接中断";
+    return "已连接";
+  }
+  function dotClass() {
+    if (view.connection === "connected") return "connected";
+    if (view.connection === "disconnected") return "disconnected";
+    return "";
+  }
+  function agentState(agent) {
+    if (!agent.available) return ["未安装", "st"];
+    if (!agent.enabled) return ["已停用", "st off"];
+    if (agent.lastError) return ["出错", "st err"];
+    return ["可用", "st"];
+  }
+
+  function renderNav() {
+    document.getElementById("nav").innerHTML = NAV.map((name) =>
+      '<div class="ni ' + (name === active ? "on" : "") + '" data-nav="' + name + '">' + name + "</div>"
+    ).join("");
+    document.querySelectorAll("[data-nav]").forEach((el) => {
+      el.addEventListener("click", () => {
+        active = el.getAttribute("data-nav");
+        render();
+      });
+    });
+  }
+
+  function sectionConnection() {
+    return '<div class="s-h">连接</div>' +
+      '<div class="s-sub">Relay 地址变更后要先测试成功才保存并重连；失败保持原配置。</div>' +
+      '<div class="setrow"><span class="k"><b>连接状态</b></span>' +
+        '<span class="top" style="gap:7px;font-size:12px;color:var(--sub)"><span class="dot ' + dotClass() + '"></span>' + esc(stateLabel()) + '</span></div>' +
+      '<div class="setrow"><span class="k"><b>Relay 地址</b><span>' + (view.relayConfigured ? "保存前会去掉尾部 / 并做 normalize" : "手机和电脑都需要能访问这个地址") + '</span></span></div>' +
+      '<input class="fld" id="relay" value="' + esc(view.relay) + '" placeholder="http://192.168.1.10:8787">' +
+      '<div class="grp">手机可达地址（可选）</div>' +
+      '<input class="fld" id="public" value="' + esc(view.publicRelayUrl) + '" placeholder="留空时沿用上面的 Relay 地址">' +
+      '<div class="inline-err hidden" id="relay-err">' + alertIcon() + ' <span></span></div>' +
+      '<div class="inline-ok hidden" id="relay-ok">连接成功</div>' +
+      '<div class="frow"><button class="btn" id="test">测试连接</button><span class="sp"></span><button class="btn pri" id="save" disabled>保存并重连</button></div>' +
+      '<div class="setrow" style="margin-top:14px"><span class="k"><b>手机配对</b><span>' + (view.paired ? "已配对；重新配对会断开当前手机" : "当前未配对") + '</span></span>' +
+        '<button class="btn" id="repair">' + (view.paired ? "重新配对…" : "配对手机…") + '</button></div>' +
+      (view.paired ? '<div class="grp">危险操作</div>' +
+        '<div class="setrow"><span class="k"><b>解除配对</b><span>只断开这台手机，不清除本机缓存与 Agent 配置</span></span>' +
+        '<button class="btn dgr" id="unpair">解除配对…</button></div>' : "");
+  }
+
+  function sectionAgents() {
+    const rows = view.agents.length ? view.agents.map((agent) => {
+      const [label, cls] = agentState(agent);
+      const error = agent.lastError ? '<span class="el">' + esc(agent.lastError) + '</span>' : "";
+      const detail = agent.available && agent.lastError
+        ? '<button class="dt" data-error="' + esc(agent.id) + '">详情</button>' : "";
+      const sw = agent.available
+        ? '<span class="sw ' + (agent.enabled ? "on" : "") + '" data-toggle="' + esc(agent.id) + '"></span>' : "";
+      return '<div class="row-i ' + (agent.available ? "" : "dis") + '" data-agent="' + esc(agent.id) + '">' +
+        '<span class="ico"><img src="' + esc(agent.icon) + '" alt=""></span>' +
+        '<span class="txt"><span class="top"><span class="nm">' + esc(agent.name) + '</span><span class="' + cls + '">' + esc(label) + '</span>' + detail + '</span>' + error + '</span>' + sw + '</div>';
+    }).join("") : '<div class="well">未发现本机 Agent</div>';
+    const problems = view.manifestProblems.length
+      ? '<div class="grp">ACP 清单问题（' + view.manifestProblems.length + '）</div><div class="well">' +
+        view.manifestProblems.map((item) => '<div class="problem"><b>' + esc(item.file) + '</b>' + esc(item.reason) + '</div>').join("") + '</div>' +
+        '<div class="frow"><button class="btn" id="copy-problems">复制诊断信息</button></div>'
+      : "";
+    return '<div class="s-h">本机 Agent</div>' +
+      '<div class="s-sub">与面板同一份数据；开关即时生效并推全量快照。两边同时打开时状态必须同步。</div>' +
+      rows + problems +
+      '<div class="frow"><button class="btn" id="refresh">刷新列表</button></div>';
+  }
+
+  function sectionProjects() {
+    return '<div class="s-h">项目</div>' +
+      '<div class="s-sub">目录不存在时会在首次新建项目前创建；选择后立刻保存。</div>' +
+      '<div class="setrow"><span class="k"><b>项目存放目录</b><span>' + (view.projectsRoot ? "手机新建的项目会放在这里" : "未设置") + '</span></span>' +
+        '<button class="btn" id="choose-root">选择文件夹…</button></div>' +
+      '<div class="well" style="margin:6px 0 14px">' + esc(view.projectsRoot || "未设置") + '</div>' +
+      '<div class="setrow"><span class="k"><b>允许手机新建项目</b><span>关闭后，手机端不再显示「新建项目」，已有项目保留</span></span>' +
+        '<span class="sw ' + (view.allowMobileNewProjects ? "on" : "") + '" id="allow-projects"></span></div>' +
+      '<div class="inline-err hidden" id="project-err"></div>';
+  }
+
+  function sectionGeneral() {
+    return '<div class="s-h">通用</div>' +
+      '<div class="s-sub">开机启动在 Windows 走启动项，macOS 走登录项；Linux 暂不支持。</div>' +
+      '<div class="setrow"><span class="k"><b>开机启动</b><span>' + (view.startupSupported ? "登录后自动启动 AgentBus 并连接 Relay" : "当前平台暂不支持注册启动项") + '</span></span>' +
+        '<span class="sw ' + (view.startupEnabled ? "on" : "") + (view.startupSupported ? "" : " dis") + '" id="startup"></span></div>';
+  }
+
+  function sectionDiagnostics() {
+    const result = lastExport
+      ? '<div class="grp">导出结果</div><div class="well" style="color:var(--ok)">已保存：' + esc(lastExport) + '</div>'
+      : diagError
+        ? '<div class="grp">导出失败</div><div class="well" style="color:var(--danger)">' + esc(diagError) + '</div>'
+        : "";
+    return '<div class="s-h">诊断</div>' +
+      '<div class="s-sub">导出包沿用脱敏规则：不含对话原文、token、密钥、本机完整路径。</div>' +
+      '<div class="setrow"><span class="k"><b>打开日志目录</b><span>调用系统文件管理器</span></span><button class="btn" id="open-logs">打开</button></div>' +
+      '<div class="setrow"><span class="k"><b>导出诊断包</b><span>系统保存对话框 · tar.gz</span></span><button class="btn ' + (busyExport ? "busy" : "") + '" id="export" ' + (busyExport ? "disabled" : "") + '>' + (busyExport ? "正在导出…" : "导出") + '</button></div>' +
+      '<div class="setrow"><span class="k"><b>版本</b><span>Host ' + esc(view.version) + '</span></span><span class="st">只读</span></div>' +
+      '<div class="setrow"><span class="k"><b>复制诊断信息</b><span>日志路径、连接状态、Agent 状态摘要</span></span><button class="btn" id="copy-diag">复制</button></div>' +
+      result;
+  }
+
+  function render() {
+    if (!view) return;
+    document.documentElement.classList.toggle("dark", view.theme === "dark");
+    renderNav();
+    const body = document.getElementById("body");
+    if (active === "连接") body.innerHTML = sectionConnection();
+    if (active === "本机 Agent") body.innerHTML = sectionAgents();
+    if (active === "项目") body.innerHTML = sectionProjects();
+    if (active === "通用") body.innerHTML = sectionGeneral();
+    if (active === "诊断") body.innerHTML = sectionDiagnostics();
+    bind();
+  }
+
+  function bind() {
+    document.querySelectorAll("[data-toggle]").forEach((el) => {
+      el.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const agent = view.agents.find((item) => item.id === el.getAttribute("data-toggle"));
+        if (agent && agent.available) api.toggleAgent(agent.id, !agent.enabled);
+      });
+    });
+    document.querySelectorAll("[data-agent]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const agent = view.agents.find((item) => item.id === el.getAttribute("data-agent"));
+        if (agent && agent.available) api.toggleAgent(agent.id, !agent.enabled);
+      });
+    });
+    document.querySelectorAll("[data-error]").forEach((el) => {
+      el.addEventListener("click", (event) => {
+        event.stopPropagation();
+        api.showAgentError(el.getAttribute("data-error"));
+      });
+    });
+    const test = document.getElementById("test");
+    if (test) test.addEventListener("click", testRelay);
+    const save = document.getElementById("save");
+    if (save) save.addEventListener("click", saveRelay);
+    const relay = document.getElementById("relay");
+    if (relay) relay.addEventListener("input", () => {
+      tested = false;
+      document.getElementById("save").disabled = true;
+      document.getElementById("relay-ok").classList.add("hidden");
+      document.getElementById("relay-err").classList.add("hidden");
+    });
+    const repair = document.getElementById("repair");
+    if (repair) repair.addEventListener("click", () => api.repair());
+    const unpair = document.getElementById("unpair");
+    if (unpair) unpair.addEventListener("click", async () => {
+      const result = await api.unpair();
+      if (!result.ok && !result.canceled) showRelayError(result.error || "解除配对失败");
+    });
+    const refresh = document.getElementById("refresh");
+    if (refresh) refresh.addEventListener("click", () => api.refreshAgents());
+    const copyProblems = document.getElementById("copy-problems");
+    if (copyProblems) copyProblems.addEventListener("click", () => api.copyProblems());
+    const choose = document.getElementById("choose-root");
+    if (choose) choose.addEventListener("click", () => api.chooseProjectRoot());
+    const allow = document.getElementById("allow-projects");
+    if (allow) allow.addEventListener("click", () => api.setAllowProjects(!view.allowMobileNewProjects));
+    const startup = document.getElementById("startup");
+    if (startup) startup.addEventListener("click", () => {
+      if (view.startupSupported) api.setStartup(!view.startupEnabled);
+    });
+    const openLogs = document.getElementById("open-logs");
+    if (openLogs) openLogs.addEventListener("click", () => api.openLogs());
+    const exportBtn = document.getElementById("export");
+    if (exportBtn) exportBtn.addEventListener("click", exportDiagnostics);
+    const copyDiag = document.getElementById("copy-diag");
+    if (copyDiag) copyDiag.addEventListener("click", () => api.copyDiagnostics());
+  }
+
+  async function testRelay() {
+    if (testBusy) return;
+    const relay = document.getElementById("relay").value.trim();
+    if (!relay) { showRelayError("请填写 Relay 地址"); return; }
+    testBusy = true;
+    const button = document.getElementById("test");
+    button.classList.add("busy"); button.textContent = "测试中…";
+    const result = await api.testRelay(relay);
+    testBusy = false;
+    button.classList.remove("busy"); button.textContent = "测试连接";
+    if (result.ok) {
+      tested = true;
+      document.getElementById("save").disabled = false;
+      document.getElementById("relay-ok").classList.remove("hidden");
+      document.getElementById("relay-err").classList.add("hidden");
+    } else {
+      tested = false;
+      document.getElementById("save").disabled = true;
+      showRelayError(result.error || "连接失败");
+    }
+  }
+
+  function showRelayError(message) {
+    const box = document.getElementById("relay-err");
+    box.querySelector("span").textContent = message;
+    box.classList.remove("hidden");
+    document.getElementById("relay-ok").classList.add("hidden");
+  }
+
+  async function saveRelay() {
+    if (!tested) return;
+    const relay = document.getElementById("relay").value.trim();
+    const publicUrl = document.getElementById("public").value.trim();
+    const result = await api.saveRelay(relay, publicUrl);
+    if (!result.ok) { showRelayError(result.error || "保存失败"); return; }
+    document.getElementById("relay-ok").textContent = "已保存并重连";
+    document.getElementById("relay-ok").classList.remove("hidden");
+    tested = false;
+    document.getElementById("save").disabled = true;
+  }
+
+  async function exportDiagnostics() {
+    if (busyExport) return;
+    busyExport = true;
+    render();
+    const result = await api.exportDiagnostics();
+    busyExport = false;
+    if (result.ok) {
+      diagError = "";
+      lastExport = result.path;
+    } else {
+      lastExport = "";
+      diagError = result.error || "导出失败";
+    }
+    render();
+  }
+
+  document.getElementById("close").addEventListener("click", () => api.close());
+  window.addEventListener("keydown", (event) => { if (event.key === "Escape") api.close(); });
+  window.addEventListener("contextmenu", (event) => event.preventDefault());
+  api.onView((next) => { view = next; render(); });
+  api.ready();
+</script>
+</body>
+</html>

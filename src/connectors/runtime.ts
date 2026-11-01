@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:chil
 import { randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { createInterface } from "node:readline";
-import { basename, delimiter, dirname, join } from "node:path";
+import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import {
   busStore,
@@ -373,6 +373,11 @@ export class AcpProcess {
 
 const specs: AgentSpec[] = [];
 const hiddenRegistryIds = new Set<string>();
+/** 本机设置：手机新建项目相关（FR-14.6.3） */
+const hostSettings = {
+  projectsRoot: "",
+  allowMobileNewProjects: true,
+};
 /** 最近一次发现里的 ACP 清单问题；托盘「ACP 清单问题」直接用 */
 let manifestProblems: ManifestProblem[] = [];
 const processes = new Map<string, AcpProcess>();
@@ -1403,7 +1408,46 @@ export function executeCommand(command: Record<string, unknown>): Promise<BusCom
   return Promise.resolve(fail("no connector is available"));
 }
 
+/** FR-14.6.3：手机新建项目；只建一层，不覆盖已有目录 */
+async function prepareNewProject(
+  name: string,
+): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
+  if (!hostSettings.allowMobileNewProjects) {
+    return { ok: false, error: "this computer does not allow creating projects from the phone" };
+  }
+  if (!hostSettings.projectsRoot) {
+    return { ok: false, error: "projectsRoot is not configured" };
+  }
+  const hasControl = [...name].some((ch) => ch.charCodeAt(0) < 0x20);
+  if (
+    name.length < 1 ||
+    name.length > 80 ||
+    name.startsWith(".") ||
+    hasControl ||
+    /[\\/:]/.test(name)
+  ) {
+    return { ok: false, error: "invalid project name" };
+  }
+  const root = resolve(hostSettings.projectsRoot);
+  const target = join(root, name);
+  try {
+    await mkdir(root, { recursive: true });
+    await mkdir(target, { recursive: false });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (code === "EEXIST") return { ok: false, error: "project already exists" };
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+  return { ok: true, path: target };
+}
+
 async function startTask(commandId: string, payload: Record<string, unknown>): Promise<BusCommandResult> {
+  if (typeof payload.newProject === "string" && payload.newProject.trim()) {
+    const prepared = await prepareNewProject(payload.newProject.trim());
+    if (!prepared.ok) return done(commandId, false, prepared.error);
+    payload.projectPath = prepared.path;
+    delete payload.newProject;
+  }
   const source = payload.source;
   if (isDedicatedKind(source)) return startDedicatedTask(commandId, source, payload);
   if (source === "dsh") return startDshTask(commandId, payload);
@@ -1884,6 +1928,19 @@ export function localAgents(): LocalAgentSummary[] {
 
 export function localManifestProblems(): ManifestProblem[] {
   return manifestProblems.slice();
+}
+
+/** 启动或设置变更时同步 projectsRoot；关闭开关后下一次快照不再上报 */
+export function applyHostSettings(settings: {
+  projectsRoot?: string;
+  allowMobileNewProjects?: boolean;
+}): void {
+  const root = (settings.projectsRoot ?? "").trim();
+  hostSettings.projectsRoot = root ? resolve(root) : "";
+  hostSettings.allowMobileNewProjects = settings.allowMobileNewProjects !== false;
+  busStore.setProjectsRoot(
+    hostSettings.allowMobileNewProjects ? hostSettings.projectsRoot : undefined,
+  );
 }
 
 /**

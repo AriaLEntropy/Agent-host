@@ -107,7 +107,13 @@ export function panelView(status: HostStatus): PanelView {
 
 function panelEntries(status: HostStatus): PanelEntry[] {
   if (!status.relayConfigured) {
-    return [{ id: "configure-relay", label: "配置 Relay…" }];
+    return [
+      { id: "configure-relay", label: "配置 Relay…" },
+      { id: "settings", label: "设置…" },
+    ];
   }
-  return [{ id: "pair", label: status.paired ? "重新配对…" : "配对手机…" }];
+  return [
+    { id: "pair", label: status.paired ? "重新配对…" : "配对手机…" },
+    { id: "settings", label: "设置…" },
+  ];
 }

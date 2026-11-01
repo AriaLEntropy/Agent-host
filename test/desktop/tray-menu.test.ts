@@ -56,15 +56,15 @@ describe("tray view", () => {
   test("panel entries follow relay and pairing state", () => {
     assert.deepEqual(
       panelView(status({ relayConfigured: false })).entries.map((entry) => entry.label),
-      ["配置 Relay…"],
+      ["配置 Relay…", "设置…"],
     );
     assert.deepEqual(
       panelView(status({ paired: false })).entries.map((entry) => entry.label),
-      ["配对手机…"],
+      ["配对手机…", "设置…"],
     );
     assert.deepEqual(
       panelView(status({ paired: true })).entries.map((entry) => entry.label),
-      ["重新配对…"],
+      ["重新配对…", "设置…"],
     );
   });
 

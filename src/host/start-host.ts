@@ -3,6 +3,7 @@ import { loadCommandLog, setCommandLogPath } from "../bus/commands.js";
 import { loadBusState } from "../bus/persistence.js";
 import { busStore, hostPlatform } from "../bus/store.js";
 import {
+  applyHostSettings,
   flushConnectorSettings,
   refreshAgents,
   startConnectorWatcher,
@@ -38,6 +39,10 @@ export async function prepareHost(): Promise<Config> {
   setCommandLogPath(join(hostDataDir(), "commands.json"));
   await loadCommandLog();
   const config = await ensureAgentId(await loadConfig());
+  applyHostSettings({
+    projectsRoot: config.projectsRoot,
+    allowMobileNewProjects: config.allowMobileNewProjects,
+  });
   const statePath = join(hostDataDir(), "bus-state.json");
   busStore.configurePersistence(statePath);
   const state = await loadBusState(statePath);

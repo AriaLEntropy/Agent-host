@@ -210,6 +210,7 @@ export class TaskStore {
     platform: hostPlatform(),
   };
   private agents: ListedAgent[] = [];
+  private projectsRootPath: string | undefined;
   private messages = new Map<string, BusTaskMessages>();
   private sessions = new Map<string, PersistedSession>();
   private persistPath: string | undefined;
@@ -233,6 +234,12 @@ export class TaskStore {
 
   setAgents(agents: ListedAgent[], announce = false) {
     this.agents = agents;
+    if (announce) this.publish({ kind: "snapshot" });
+  }
+
+  /** FR-14.6.3：只在允许手机新建项目时上报 projectsRoot */
+  setProjectsRoot(path: string | undefined, announce = true) {
+    this.projectsRootPath = path?.trim() || undefined;
     if (announce) this.publish({ kind: "snapshot" });
   }
 
@@ -446,6 +453,7 @@ export class TaskStore {
           canRemoveProjects: true,
           // 运行时实现了 restartConnector；协议 3.9 只写 true。
           canRestartConnectors: true,
+          ...(this.projectsRootPath ? { projectsRoot: this.projectsRootPath } : {}),
         },
       ],
       tasks: visibleTasks,

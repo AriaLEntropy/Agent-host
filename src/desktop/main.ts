@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HostController, type HostStatus } from "./host-controller.js";
 import { PairingWindow } from "./pairing-window.js";
+import { SettingsWindow } from "./settings-window.js";
 import { TrayPanel } from "./panel-window.js";
 import { agentStateLabel, trayIconName, trayTooltip } from "./tray-menu.js";
 
@@ -13,6 +14,7 @@ let controller: HostController | undefined;
 let tray: Tray | undefined;
 let panel: TrayPanel | undefined;
 let pairingWindow: PairingWindow | undefined;
+let settingsWindow: SettingsWindow | undefined;
 let shuttingDown = false;
 let currentIconName = "";
 
@@ -88,6 +90,18 @@ async function bootstrap(): Promise<void> {
   }
 
   pairingWindow = new PairingWindow(host);
+  settingsWindow = new SettingsWindow(host, {
+    showAgentError,
+    repair: () => {
+      if (host.relayInfo().paired) {
+        void confirmRepair().then((ok) => {
+          if (ok) pairingWindow?.open("auto");
+        });
+      } else {
+        pairingWindow?.open("auto");
+      }
+    },
+  });
   panel = new TrayPanel({
     status: () => host.status(),
     subscribe: (listener) => host.subscribe(listener),
@@ -121,9 +135,7 @@ async function bootstrap(): Promise<void> {
         }
         return;
       }
-      if (id === "settings") {
-        // 设置窗口在下一步接入
-      }
+      if (id === "settings") settingsWindow?.open();
     },
     quit: () => app.quit(),
   });
@@ -153,6 +165,7 @@ app.on("before-quit", (event) => {
   if (shuttingDown) return;
   event.preventDefault();
   shuttingDown = true;
+  settingsWindow?.close();
   pairingWindow?.close();
   panel?.close();
   void controller?.stop().finally(() => app.quit());

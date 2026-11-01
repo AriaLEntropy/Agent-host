@@ -2,6 +2,7 @@ import { busStore } from "../bus/store.js";
 import type { ManifestProblem } from "../connectors/discover.js";
 import {
   applyConnectorEnabled,
+  applyHostSettings,
   localAgents,
   localManifestProblems,
   refreshAgents,
@@ -10,6 +11,8 @@ import {
 } from "../connectors/runtime.js";
 import { checkRelayHealth, loadConfig, saveConfig, type Config } from "../config.js";
 import { startHost, type StartedHost } from "../host/start-host.js";
+import { PLUGIN_VERSION } from "../tunnel/version.js";
+import { panelView, type PanelAgent } from "./tray-menu.js";
 import { createPairingTicket, PairingExpiredError, type PairingTicket } from "../tunnel/pairing.js";
 import { RelayClient } from "../tunnel/relay-client.js";
 
@@ -31,6 +34,20 @@ export type RelayInfo = {
   relay: string;
   publicRelayUrl: string;
   paired: boolean;
+};
+
+export type SettingsInfo = {
+  relay: string;
+  publicRelayUrl: string;
+  relayConfigured: boolean;
+  paired: boolean;
+  connection: ConnectionState;
+  hostName: string;
+  version: string;
+  projectsRoot: string;
+  allowMobileNewProjects: boolean;
+  agents: PanelAgent[];
+  manifestProblems: ManifestProblem[];
 };
 
 export type PairingStart = {
@@ -102,6 +119,87 @@ export class HostController {
   async refreshAgents(): Promise<void> {
     await refreshAgents().catch(() => undefined);
     this.emit();
+  }
+
+  settingsInfo(): SettingsInfo {
+    const config = this.running?.config;
+    return {
+      relay: config?.relay ?? "",
+      publicRelayUrl: config?.publicRelayUrl ?? "",
+      relayConfigured: Boolean(config?.relay.trim()),
+      paired: Boolean(config?.hostToken),
+      connection: this.connectionState(),
+      hostName: config?.hostName ?? "Agent Host",
+      version: PLUGIN_VERSION,
+      projectsRoot: config?.projectsRoot ?? "",
+      allowMobileNewProjects: config?.allowMobileNewProjects !== false,
+      agents: panelView(this.status()).agents,
+      manifestProblems: localManifestProblems(),
+    };
+  }
+
+  configSnapshot(): Config | undefined {
+    return this.running?.config;
+  }
+
+  async unpair(): Promise<{ ok: boolean; error?: string }> {
+    const config = this.running?.config ?? (await loadConfig());
+    if (config.hostId && config.hostToken) {
+      try {
+        const response = await fetch(
+          `${config.relay}/host-management/${encodeURIComponent(config.hostId)}/unbind`,
+          {
+            method: "POST",
+            headers: { authorization: `Host ${config.hostToken}` },
+            signal: AbortSignal.timeout(5000),
+          },
+        );
+        if (!response.ok) return { ok: false, error: `Relay 拒绝解除配对（${response.status}）` };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+    const next: Config = { ...config };
+    delete next.hostId;
+    delete next.hostToken;
+    delete next.e2eeMasterKey;
+    try {
+      await saveConfig(next);
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    this.running?.client?.stop();
+    if (this.running) {
+      this.running.config = next;
+      this.running.client = undefined;
+    }
+    this.authRejected = false;
+    this.emit();
+    return { ok: true };
+  }
+
+  async updateProjects(
+    projectsRoot: string,
+    allowMobileNewProjects: boolean,
+  ): Promise<{ ok: boolean; error?: string }> {
+    const current = this.running?.config ?? (await loadConfig());
+    const next: Config = {
+      ...current,
+      projectsRoot: projectsRoot.trim() || undefined,
+      allowMobileNewProjects,
+    };
+    try {
+      await saveConfig(next);
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    if (this.running) this.running.config = next;
+    applyHostSettings({
+      projectsRoot: next.projectsRoot,
+      allowMobileNewProjects: next.allowMobileNewProjects,
+    });
+    this.emit();
+    return { ok: true };
   }
 
   relayInfo(): RelayInfo {
