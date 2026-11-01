@@ -231,17 +231,17 @@
     const button = document.getElementById("detect");
     if (button) { button.classList.add("busy"); button.textContent = "检测中…"; }
     const found = await api.detectRelay();
-    if (button) { button.classList.remove("busy"); button.textContent = "检测本机 Relay"; }
-    if (!found.ok) { showTestError(found.error || "未发现本机 Relay"); return; }
+    if (!found.ok) {
+      if (button) { button.classList.remove("busy"); button.textContent = "检测本机 Relay"; }
+      showTestError(found.error || "未发现本机 Relay");
+      return;
+    }
     const relay = document.getElementById("relay");
     if (relay) relay.value = found.url;
-    if (auto) await testRelay();
-    else {
-      document.getElementById("test-ok").textContent = "发现本机 Relay：" + found.url;
-      document.getElementById("test-ok").classList.remove("hidden");
-      tested = false;
-      document.getElementById("save").disabled = true;
-    }
+    // 检测到就测试并继续配对；检测按钮的意图就是使用它
+    await testRelay();
+    if (button) { button.classList.remove("busy"); button.textContent = "检测本机 Relay"; }
+    if (tested) await saveRelay();
   }
 
   async function testRelay() {

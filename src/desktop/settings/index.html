@@ -335,15 +335,19 @@
     const button = document.getElementById("detect");
     if (button) { button.classList.add("busy"); button.textContent = "检测中…"; }
     const found = await api.detectRelay();
-    if (button) { button.classList.remove("busy"); button.textContent = "检测本机 Relay"; }
     if (!found.ok) {
+      if (button) { button.classList.remove("busy"); button.textContent = "检测本机 Relay"; }
       setRelayService("未发现本机 Relay", "bad", found.error);
       return;
     }
     const relay = document.getElementById("relay");
     if (relay) relay.value = found.url;
     setRelayService("发现本机 Relay", "ok", found.url);
-    if (auto) await testRelay();
+    // 检测成功就直接测试并保存：用户点「检测本机 Relay」的意图就是用它
+    testBusy = false;
+    await testRelay();
+    if (button) { button.classList.remove("busy"); button.textContent = "检测本机 Relay"; }
+    if (tested) await saveRelay();
   }
 
   async function testRelay() {
