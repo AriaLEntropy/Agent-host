@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("agentbus", {
   ready: () => ipcRenderer.send("panel:ready"),
   toggle: (agentId, enabled) => ipcRenderer.send("panel:toggle", { agentId, enabled }),
+  entry: (id) => ipcRenderer.send("panel:entry", id),
   showError: (agentId) => ipcRenderer.send("panel:error", agentId),
   copyProblems: () => ipcRenderer.send("panel:copy-problems"),
   refresh: () => ipcRenderer.send("panel:refresh"),

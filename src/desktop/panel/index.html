@@ -147,6 +147,9 @@
   html.dark .switch.on::after { background: var(--knob); }
   .switch.on::after { transform: translateX(12px); }
   .empty { padding: 6px 8px 8px; font-size: 11.5px; color: var(--muted); }
+  .entries { margin: 5px 6px 0; padding-top: 1px; border-top: 1px solid var(--line); }
+  .erow { padding: 6px; border-radius: 7px; font-size: 12px; color: var(--sub); cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .erow:hover { background: var(--hover); color: var(--text); }
   .problems { margin: 5px 6px 0; border-top: 1px solid var(--line); padding-top: 1px; }
   .problems-head {
     display: flex;
@@ -232,6 +235,13 @@
     </div>`;
   }
 
+  function entriesSection(items) {
+    if (!items || !items.length) return "";
+    return `<div class="entries">${items
+      .map((entry) => `<div class="erow" data-entry="${esc(entry.id)}" role="button" tabindex="0">${esc(entry.label)}</div>`)
+      .join("")}</div>`;
+  }
+
   function problemsSection(items) {
     if (!items.length) return "";
     const rows = items
@@ -264,6 +274,7 @@
         ${agents}
       </div>
       ${problemsSection(view.problems)}
+      ${entriesSection(view.entries)}
       <div class="footer">
         <button data-action="refresh">刷新列表</button>
         <button class="quit" data-action="quit">退出</button>
@@ -291,6 +302,11 @@
         problemsOpen = !problemsOpen;
         render();
       }
+      return;
+    }
+    const entry = target.closest("[data-entry]");
+    if (entry) {
+      api.entry(entry.getAttribute("data-entry"));
       return;
     }
     const errorEl = target.closest("[data-error]");

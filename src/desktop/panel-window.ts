@@ -19,6 +19,7 @@ export type PanelActions = {
   showAgentError: (agentId: string) => Promise<void>;
   copyProblems: () => void;
   refresh: () => Promise<void>;
+  openEntry: (id: string) => void;
   quit: () => void;
 };
 
@@ -207,6 +208,9 @@ export class TrayPanel {
     });
     ipcMain.on("panel:refresh", (event) => {
       if (fromPanel(event)) void this.actions.refresh();
+    });
+    ipcMain.on("panel:entry", (event, id: unknown) => {
+      if (fromPanel(event) && typeof id === "string") this.actions.openEntry(id);
     });
     ipcMain.on("panel:close", (event) => {
       if (fromPanel(event)) this.close();

@@ -12,6 +12,8 @@ import {
 function status(overrides: Partial<HostStatus> = {}): HostStatus {
   return {
     connection: "connected",
+    relayConfigured: true,
+    paired: false,
     hostName: "DESKTOP-1",
     pendingCount: 0,
     agents: [],
@@ -38,6 +40,7 @@ describe("tray view", () => {
     assert.equal(statusLabel(status({ pendingCount: 2 })), "已连接 · 待处理 2");
     assert.equal(statusLabel(status({ connection: "unpaired" })), "未配对");
     assert.equal(statusLabel(status({ connection: "disconnected" })), "连接中断");
+    assert.equal(statusLabel(status({ relayConfigured: false })), "未配置 Relay");
   });
 
   test("agent state only uses the four requirement words", () => {
@@ -48,6 +51,21 @@ describe("tray view", () => {
     assert.equal(agentStateLabel(agent({ available: false, enabled: false }) as any), "未安装");
     assert.equal(agentStateLabel(agent({ lastError: "boom" }) as any), "出错");
     assert.equal(agentStateLabel(agent({ status: "error" }) as any), "出错");
+  });
+
+  test("panel entries follow relay and pairing state", () => {
+    assert.deepEqual(
+      panelView(status({ relayConfigured: false })).entries.map((entry) => entry.label),
+      ["配置 Relay…"],
+    );
+    assert.deepEqual(
+      panelView(status({ paired: false })).entries.map((entry) => entry.label),
+      ["配对手机…"],
+    );
+    assert.deepEqual(
+      panelView(status({ paired: true })).entries.map((entry) => entry.label),
+      ["重新配对…"],
+    );
   });
 
   test("panel view carries rows and manifest problems without losing state", () => {
@@ -93,5 +111,6 @@ describe("tray view", () => {
     assert.equal(trayIconName(status({ pendingCount: 12 })), "tray-connected-9plus.png");
     assert.equal(trayTooltip(status({ pendingCount: 2 })), "AgentBus · 已连接 · 待处理 2");
     assert.equal(trayTooltip(status({ connection: "unpaired" })), "AgentBus · 未配对");
+    assert.equal(trayTooltip(status({ relayConfigured: false })), "AgentBus · 未配置 Relay");
   });
 });

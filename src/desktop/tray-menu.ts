@@ -2,6 +2,7 @@ import { agentIconFile } from "./agent-icons.js";
 import type { HostStatus } from "./host-controller.js";
 
 export function statusLabel(status: HostStatus): string {
+  if (!status.relayConfigured) return "未配置 Relay";
   if (status.connection === "unpaired") return "未配对";
   if (status.connection === "disconnected") return "连接中断";
   return status.pendingCount > 0
@@ -25,6 +26,7 @@ export function agentStateLabel(agent: {
 }
 
 export function trayTooltip(status: HostStatus): string {
+  if (!status.relayConfigured) return "AgentBus · 未配置 Relay";
   if (status.connection === "unpaired") return "AgentBus · 未配对";
   if (status.connection === "disconnected") return "AgentBus · 连接中断";
   return status.pendingCount > 0
@@ -55,6 +57,11 @@ export type PanelAgent = {
   errorText?: string;
 };
 
+export type PanelEntry = {
+  id: "configure-relay" | "pair" | "settings";
+  label: string;
+};
+
 export type PanelView = {
   connection: HostStatus["connection"];
   statusLabel: string;
@@ -62,6 +69,7 @@ export type PanelView = {
   pendingCount: number;
   agents: PanelAgent[];
   problems: { file: string; reason: string }[];
+  entries: PanelEntry[];
 };
 
 /**
@@ -93,5 +101,13 @@ export function panelView(status: HostStatus): PanelView {
       file: problem.file,
       reason: problem.reason,
     })),
+    entries: panelEntries(status),
   };
+}
+
+function panelEntries(status: HostStatus): PanelEntry[] {
+  if (!status.relayConfigured) {
+    return [{ id: "configure-relay", label: "配置 Relay…" }];
+  }
+  return [{ id: "pair", label: status.paired ? "重新配对…" : "配对手机…" }];
 }

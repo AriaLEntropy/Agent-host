@@ -2,6 +2,7 @@ import { app, clipboard, dialog, nativeImage, Tray } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HostController, type HostStatus } from "./host-controller.js";
+import { PairingWindow } from "./pairing-window.js";
 import { TrayPanel } from "./panel-window.js";
 import { agentStateLabel, trayIconName, trayTooltip } from "./tray-menu.js";
 
@@ -11,6 +12,7 @@ const iconDir = join(here, "icons");
 let controller: HostController | undefined;
 let tray: Tray | undefined;
 let panel: TrayPanel | undefined;
+let pairingWindow: PairingWindow | undefined;
 let shuttingDown = false;
 let currentIconName = "";
 
@@ -26,6 +28,19 @@ function renderTray(status: HostStatus) {
     currentIconName = iconName;
   }
   tray.setToolTip(trayTooltip(status));
+}
+
+async function confirmRepair(): Promise<boolean> {
+  const { response } = await dialog.showMessageBox({
+    type: "question",
+    title: "重新配对？",
+    message: "当前手机将断开连接，需要用新手机重新扫码。",
+    buttons: ["取消", "重新配对"],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  });
+  return response === 1;
 }
 
 async function showAgentError(agentId: string, detail?: string): Promise<void> {
@@ -72,6 +87,7 @@ async function bootstrap(): Promise<void> {
     return;
   }
 
+  pairingWindow = new PairingWindow(host);
   panel = new TrayPanel({
     status: () => host.status(),
     subscribe: (listener) => host.subscribe(listener),
@@ -90,6 +106,25 @@ async function bootstrap(): Promise<void> {
       clipboard.writeText(text);
     },
     refresh: () => host.refreshAgents(),
+    openEntry: (id) => {
+      if (id === "configure-relay") {
+        pairingWindow?.open("relay");
+        return;
+      }
+      if (id === "pair") {
+        if (host.relayInfo().paired) {
+          void confirmRepair().then((ok) => {
+            if (ok) pairingWindow?.open("auto");
+          });
+        } else {
+          pairingWindow?.open("auto");
+        }
+        return;
+      }
+      if (id === "settings") {
+        // 设置窗口在下一步接入
+      }
+    },
     quit: () => app.quit(),
   });
 
@@ -118,6 +153,7 @@ app.on("before-quit", (event) => {
   if (shuttingDown) return;
   event.preventDefault();
   shuttingDown = true;
+  pairingWindow?.close();
   panel?.close();
   void controller?.stop().finally(() => app.quit());
 });

@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>配对手机</title>
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    --panel: #F5F5F7; --text: #1D1B20; --sub: #57534E; --muted: #8E8E93;
+    --line: rgba(29, 27, 32, 0.08); --hover: rgba(29, 27, 32, 0.05);
+    --field: #FFFFFF; --track-on: #1D1B20; --knob: #FFFFFF;
+    --ok: #557A63; --warn: #9A6A1F; --danger: #D92D20;
+  }
+  html.dark {
+    --panel: #1C1C1E; --text: #F2F2F7; --sub: #C7C7CC; --muted: #8E8E93;
+    --line: rgba(255, 255, 255, 0.10); --hover: rgba(255, 255, 255, 0.06);
+    --field: #2C2C2E; --track-on: #F2F2F7; --knob: #1C1C1E;
+    --ok: #7FA98D; --warn: #E0B15C; --danger: #FF6961;
+  }
+  html, body {
+    margin: 0;
+    background: transparent;
+    font-family: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
+      "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+  .win {
+    width: 360px;
+    height: 520px;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    color: var(--text);
+  }
+  .w-title {
+    flex: none;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px 0 14px;
+    border-bottom: 1px solid var(--line);
+    -webkit-app-region: drag;
+  }
+  .w-title .t { font-size: 13px; font-weight: 600; }
+  .w-title .drag { flex: 1; height: 100%; }
+  .w-close {
+    width: 24px; height: 24px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--sub); -webkit-app-region: no-drag;
+  }
+  .w-close:hover { background: var(--hover); color: var(--text); }
+  .w-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    padding: 14px;
+  }
+  .w-body::-webkit-scrollbar { width: 8px; }
+  .w-body::-webkit-scrollbar-thumb {
+    background: rgba(140, 140, 150, 0.42);
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .w-foot {
+    flex: none;
+    border-top: 1px solid var(--line);
+    padding: 9px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .sp { flex: 1; }
+  .btn {
+    font: inherit; font-size: 12px; border-radius: 7px; padding: 6px 12px;
+    cursor: pointer; border: 1px solid var(--line); background: var(--field); color: var(--sub);
+  }
+  .btn:hover { color: var(--text); background: var(--hover); }
+  .btn.pri { background: var(--track-on); color: var(--knob); border-color: transparent; }
+  html.dark .btn.pri { color: #1C1C1E; }
+  .btn.pri[disabled] { opacity: 0.4; cursor: not-allowed; }
+  .btn.busy { opacity: 0.6; cursor: progress; }
+  .lbl { font-size: 11.5px; font-weight: 600; color: var(--sub); margin: 0 0 5px; }
+  .hint { font-size: 10.5px; color: var(--muted); line-height: 1.55; margin: 0 0 12px; }
+  .fld {
+    width: 100%;
+    font: inherit;
+    font-size: 12px;
+    color: var(--text);
+    background: var(--field);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 7px 9px;
+    box-sizing: border-box;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .fld:focus { outline: none; border-color: var(--muted); }
+  .fld.bad { border-color: var(--danger); }
+  .inline-err { display: flex; align-items: flex-start; gap: 5px; font-size: 10.5px; line-height: 1.5; color: var(--danger); margin-top: 5px; word-break: break-all; }
+  .inline-ok { color: var(--ok); }
+  .grp { margin: 14px 0 5px; font-size: 10.5px; color: var(--muted); }
+  .qr {
+    width: 220px; height: 220px; border-radius: 10px; background: #fff;
+    border: 1px solid var(--line); margin: 2px auto 0;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; overflow: hidden;
+  }
+  .qr svg { width: 196px; height: 196px; display: block; }
+  .qr.dead { filter: grayscale(1) contrast(0.34) opacity(0.5); }
+  .qr .stamp {
+    position: absolute; inset: auto 0 0 0; text-align: center;
+    font-size: 11px; color: var(--warn); padding: 6px 0;
+    background: rgba(245, 245, 247, 0.85);
+  }
+  html.dark .qr .stamp { background: rgba(28, 28, 30, 0.85); }
+  .linkrow { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+  .linkrow .u { flex: 1; min-width: 0; font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lnk { font-size: 10.5px; color: var(--sub); padding: 3px 6px; border-radius: 4px; cursor: pointer; flex: none; }
+  .lnk:hover { background: var(--hover); color: var(--text); }
+  .cdown { text-align: center; font-size: 11px; color: var(--muted); margin-top: 9px; font-variant-numeric: tabular-nums; }
+  .res { display: flex; flex-direction: column; align-items: center; gap: 9px; padding: 34px 10px 22px; text-align: center; }
+  .res .big { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .res .big.ok { background: rgba(85, 122, 99, 0.14); color: var(--ok); }
+  .res .big.wr { background: rgba(201, 138, 46, 0.16); color: var(--warn); }
+  .res .big.er { background: rgba(217, 45, 32, 0.12); color: var(--danger); }
+  .res .h { font-size: 13px; font-weight: 600; }
+  .res .p { font-size: 11px; color: var(--muted); line-height: 1.6; max-width: 270px; word-break: break-all; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="win">
+  <div class="w-title">
+    <span class="t" id="title">配对手机</span>
+    <span class="drag"></span>
+    <span class="w-close" id="close" title="关闭">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+        <path d="M18 6 6 18M6 6l12 12"/>
+      </svg>
+    </span>
+  </div>
+  <div class="w-body" id="body"></div>
+  <div class="w-foot" id="foot"></div>
+</div>
+<script>
+  const api = window.agentbusPairing;
+  let mode = "relay";
+  let qrData = null;
+  let tested = false;
+  let testBusy = false;
+  let countdownTimer = null;
+
+  function esc(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function alertIcon() {
+    return '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.4v.1"/></svg>';
+  }
+
+  function checkIcon(size) {
+    return '<svg width="' + (size || 22) + '" height="' + (size || 22) + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  }
+
+  function setTitle(text) {
+    document.getElementById("title").textContent = text;
+  }
+
+  function relayView(data) {
+    mode = "relay";
+    setTitle(data.paired ? "重新配对" : "配对手机");
+    const relayValue = data.relay || "";
+    const publicValue = data.publicRelayUrl || "";
+    document.getElementById("body").innerHTML =
+      '<div class="lbl">连接 Relay</div>' +
+      '<div class="hint">手机和电脑都需要能访问这个地址。自建 Relay 请填写它的 HTTP/HTTPS 地址。</div>' +
+      '<div class="lbl">Relay 地址</div>' +
+      '<input class="fld" id="relay" placeholder="http://192.168.1.10:8787" value="' + esc(relayValue) + '">' +
+      '<div class="inline-err hidden" id="test-error">' + alertIcon() + '<span></span></div>' +
+      '<div class="inline-ok hidden" id="test-ok">连接成功</div>' +
+      '<div class="grp">手机可达地址（可选）</div>' +
+      '<input class="fld" id="public" placeholder="留空时沿用上面的 Relay 地址" value="' + esc(publicValue) + '">' +
+      '<div class="hint" style="margin:6px 0 0">Relay 在内网、手机需要走公网或域名时才填。</div>';
+    document.getElementById("foot").innerHTML =
+      '<span class="sp"></span>' +
+      '<button class="btn" id="test">测试连接</button>' +
+      '<button class="btn pri" id="save" disabled>保存并继续</button>';
+    tested = false;
+    document.getElementById("relay").addEventListener("input", () => {
+      tested = false;
+      document.getElementById("save").disabled = true;
+      document.getElementById("test-ok").classList.add("hidden");
+      document.getElementById("test-error").classList.add("hidden");
+    });
+    document.getElementById("test").addEventListener("click", testRelay);
+    document.getElementById("save").addEventListener("click", saveRelay);
+  }
+
+  async function testRelay() {
+    if (testBusy) return;
+    const relay = document.getElementById("relay").value.trim();
+    if (!relay) {
+      showTestError("请填写 Relay 地址");
+      return;
+    }
+    testBusy = true;
+    const button = document.getElementById("test");
+    button.classList.add("busy");
+    button.textContent = "测试中…";
+    const result = await api.testRelay(relay);
+    testBusy = false;
+    button.classList.remove("busy");
+    button.textContent = "测试连接";
+    if (result.ok) {
+      tested = true;
+      document.getElementById("save").disabled = false;
+      document.getElementById("test-ok").classList.remove("hidden");
+      document.getElementById("test-error").classList.add("hidden");
+    } else {
+      tested = false;
+      document.getElementById("save").disabled = true;
+      showTestError(result.error || "连接失败");
+    }
+  }
+
+  function showTestError(message) {
+    const box = document.getElementById("test-error");
+    box.querySelector("span").textContent = message;
+    box.classList.remove("hidden");
+    document.getElementById("test-ok").classList.add("hidden");
+  }
+
+  async function saveRelay() {
+    if (!tested) return;
+    const relay = document.getElementById("relay").value.trim();
+    const publicUrl = document.getElementById("public").value.trim();
+    const button = document.getElementById("save");
+    button.classList.add("busy");
+    button.textContent = "保存中…";
+    const result = await api.saveRelay(relay, publicUrl);
+    button.classList.remove("busy");
+    button.textContent = "保存并继续";
+    if (!result.ok) {
+      showTestError(result.error || "保存失败");
+      return;
+    }
+    // 主进程保存后会直接推送二维码状态
+  }
+
+  function qrView(data) {
+    mode = "qr";
+    qrData = data;
+    setTitle("配对手机");
+    document.getElementById("body").innerHTML =
+      '<div class="lbl" style="text-align:center">用手机扫描二维码，确认后即可连接这台电脑</div>' +
+      '<div class="qr" id="qr">' + data.qrSvg + '<div class="stamp hidden" id="stamp">二维码已过期</div></div>' +
+      '<div class="linkrow"><span class="u" id="link">' + esc(data.link) + '</span><span class="lnk" id="copy">复制</span></div>' +
+      '<div class="cdown" id="cdown">剩余 0:00</div>';
+    document.getElementById("foot").innerHTML =
+      '<button class="btn" id="regen">重新生成</button><span class="sp"></span><button class="btn" id="cancel">取消</button>';
+    document.getElementById("copy").addEventListener("click", async () => {
+      await api.copy(data.link);
+      const el = document.getElementById("copy");
+      el.textContent = "已复制";
+      setTimeout(() => (el.textContent = "复制"), 1500);
+    });
+    document.getElementById("regen").addEventListener("click", () => api.regenerate());
+    document.getElementById("cancel").addEventListener("click", () => api.close());
+    startCountdown(data);
+  }
+
+  function startCountdown(data) {
+    if (countdownTimer) clearInterval(countdownTimer);
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((data.expiresAt - Date.now()) / 1000));
+      const cdown = document.getElementById("cdown");
+      const stamp = document.getElementById("stamp");
+      const qr = document.getElementById("qr");
+      if (!cdown || !stamp || !qr) return;
+      if (left <= 0) {
+        cdown.textContent = "链接已失效";
+        stamp.classList.remove("hidden");
+        qr.classList.add("dead");
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+        return;
+      }
+      const m = Math.floor(left / 60);
+      const s = String(left % 60).padStart(2, "0");
+      cdown.textContent = "剩余 " + m + ":" + s;
+    };
+    tick();
+    countdownTimer = setInterval(tick, 250);
+  }
+
+  function resultView(kind, detail) {
+    mode = "result";
+    if (countdownTimer) clearInterval(countdownTimer);
+    countdownTimer = null;
+    const map = {
+      wait: ["wr", alertIcon(), "等待手机确认…", "手机上点「确认配对」后自动完成；二维码仍然可以继续扫。"],
+      ok: ["ok", checkIcon(22), "配对成功", "1.5 秒后关闭本窗口，托盘转为已连接。"],
+      expired: ["wr", alertIcon(), "二维码已过期", "请重新生成二维码后再扫。"],
+      rejected: ["er", alertIcon(), "Relay 拒绝了这次配对", detail || "需要用手机重新扫码。"],
+      network: ["er", alertIcon(), "网络错误", detail || "连不上 Relay，请检查地址和网络。"],
+    };
+    const item = map[kind] || map.network;
+    setTitle("配对手机");
+    document.getElementById("body").innerHTML =
+      '<div class="res"><span class="big ' + item[0] + '">' + item[1] + '</span>' +
+      '<span class="h">' + esc(item[2]) + '</span><span class="p">' + esc(item[3]) + '</span></div>';
+    if (kind === "wait") {
+      document.getElementById("foot").innerHTML = '<span class="sp"></span><button class="btn" id="cancel">取消</button>';
+      document.getElementById("cancel").addEventListener("click", () => api.close());
+    } else if (kind === "ok") {
+      document.getElementById("foot").innerHTML = "";
+    } else {
+      document.getElementById("foot").innerHTML =
+        '<button class="btn" id="cancel">取消</button><span class="sp"></span><button class="btn pri" id="retry">重新生成</button>';
+      document.getElementById("cancel").addEventListener("click", () => api.close());
+      document.getElementById("retry").addEventListener("click", () => api.regenerate());
+    }
+  }
+
+  document.getElementById("close").addEventListener("click", () => api.close());
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") api.close();
+  });
+  window.addEventListener("contextmenu", (event) => event.preventDefault());
+
+  api.onView((view) => {
+    document.documentElement.classList.toggle("dark", view.theme === "dark");
+    if (view.mode === "relay") relayView(view);
+    if (view.mode === "qr") qrView(view);
+    if (view.mode === "result") resultView(view.result, view.error);
+  });
+  api.ready();
+</script>
+</body>
+</html>

@@ -12,4 +12,11 @@ await cp(source, target, { recursive: true });
 await cp(join(here, "../src/desktop/panel"), join(here, "../dist/desktop/panel"), {
   recursive: true,
 });
+await cp(join(here, "../src/desktop/pairing"), join(here, "../dist/desktop/pairing"), {
+  recursive: true,
+});
+await cp(
+  join(here, "../src/desktop/pairing-preload.cjs"),
+  join(here, "../dist/desktop/pairing-preload.cjs"),
+);
 await cp(join(here, "../src/desktop/preload.cjs"), join(here, "../dist/desktop/preload.cjs"));
