@@ -9,3 +9,7 @@ const source = join(here, "../src/desktop/icons");
 const target = join(here, "../dist/desktop/icons");
 await mkdir(target, { recursive: true });
 await cp(source, target, { recursive: true });
+await cp(join(here, "../src/desktop/panel"), join(here, "../dist/desktop/panel"), {
+  recursive: true,
+});
+await cp(join(here, "../src/desktop/preload.cjs"), join(here, "../dist/desktop/preload.cjs"));

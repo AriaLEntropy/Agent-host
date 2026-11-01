@@ -3,10 +3,10 @@ import { describe, test } from "node:test";
 import type { HostStatus } from "../../src/desktop/host-controller.js";
 import {
   agentStateLabel,
-  buildTrayMenu,
+  panelView,
+  statusLabel,
   trayIconName,
   trayTooltip,
-  type TrayMenuNode,
 } from "../../src/desktop/tray-menu.js";
 
 function status(overrides: Partial<HostStatus> = {}): HostStatus {
@@ -32,91 +32,12 @@ function agent(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function findSubmenu(nodes: TrayMenuNode[], label: string): TrayMenuNode[] {
-  const node = nodes.find((item) => item.kind === "submenu" && item.label === label);
-  assert.ok(node && node.kind === "submenu", `missing submenu ${label}`);
-  return node.submenu;
-}
-
-describe("tray menu", () => {
+describe("tray view", () => {
   test("status row follows connection and pending count", () => {
-    assert.equal((buildTrayMenu(status())[0] as any).label, "已连接 · 无待处理");
-    assert.equal(
-      (buildTrayMenu(status({ pendingCount: 2 }))[0] as any).label,
-      "已连接 · 待处理 2",
-    );
-    assert.equal(
-      (buildTrayMenu(status({ connection: "unpaired" }))[0] as any).label,
-      "未配对",
-    );
-    assert.equal(
-      (buildTrayMenu(status({ connection: "disconnected" }))[0] as any).label,
-      "连接中断",
-    );
-  });
-
-  test("agent rows are checkboxes that flip the current state", () => {
-    const menu = buildTrayMenu(
-      status({
-        agents: [
-          agent(),
-          agent({ id: "opencode", kind: "acp", name: "OpenCode", enabled: false, available: false }),
-        ],
-      }),
-    );
-    const agents = findSubmenu(menu, "本机 Agent");
-    const codex = agents.find((node) => node.kind === "item" && node.label.startsWith("Codex"));
-    assert.deepEqual(codex, {
-      kind: "item",
-      label: "Codex · 可用",
-      checked: true,
-      action: { type: "toggle-agent", agentId: "codex", enabled: false },
-    });
-    const opencode = agents.find((node) =>
-      node.kind === "item" && node.label.startsWith("OpenCode"),
-    ) as any;
-    assert.equal(opencode.checked, false);
-    assert.deepEqual(opencode.action, {
-      type: "toggle-agent",
-      agentId: "opencode",
-      enabled: true,
-    });
-  });
-
-  test("errored agents expose a detail action and manifest problems are nested", () => {
-    const menu = buildTrayMenu(
-      status({
-        agents: [agent({ lastError: "找不到 claude 可执行文件" })],
-        manifestProblems: [{ file: "broken.json", reason: "缺少 command" }],
-      }),
-    );
-    const agents = findSubmenu(menu, "本机 Agent");
-    const detail = agents.find((node) =>
-      node.kind === "item" && node.label === "查看 Codex 错误…",
-    );
-    assert.deepEqual(detail, {
-      kind: "item",
-      label: "查看 Codex 错误…",
-      action: { type: "show-agent-error", agentId: "codex" },
-    });
-    const problems = findSubmenu(agents, "ACP 清单问题（1）");
-    assert.deepEqual(problems[0], {
-      kind: "item",
-      label: "broken.json · 缺少 command",
-      enabled: false,
-    });
-    assert.deepEqual(problems.at(-1), {
-      kind: "item",
-      label: "复制诊断信息",
-      action: { type: "copy-manifest-problems" },
-    });
-  });
-
-  test("empty agent list stays explicit and quit is always present", () => {
-    const menu = buildTrayMenu(status());
-    const agents = findSubmenu(menu, "本机 Agent");
-    assert.deepEqual(agents[0], { kind: "item", label: "未发现本机 Agent", enabled: false });
-    assert.deepEqual(menu.at(-1), { kind: "item", label: "退出", action: { type: "quit" } });
+    assert.equal(statusLabel(status()), "已连接 · 无待处理");
+    assert.equal(statusLabel(status({ pendingCount: 2 })), "已连接 · 待处理 2");
+    assert.equal(statusLabel(status({ connection: "unpaired" })), "未配对");
+    assert.equal(statusLabel(status({ connection: "disconnected" })), "连接中断");
   });
 
   test("agent state only uses the four requirement words", () => {
@@ -127,6 +48,38 @@ describe("tray menu", () => {
     assert.equal(agentStateLabel(agent({ available: false, enabled: false }) as any), "未安装");
     assert.equal(agentStateLabel(agent({ lastError: "boom" }) as any), "出错");
     assert.equal(agentStateLabel(agent({ status: "error" }) as any), "出错");
+  });
+
+  test("panel view carries rows and manifest problems without losing state", () => {
+    const view = panelView(
+      status({
+        pendingCount: 1,
+        agents: [
+          agent(),
+          agent({ id: "opencode", kind: "acp", name: "OpenCode", enabled: false, available: false }),
+          agent({ id: "hermes", kind: "hermes", name: "Hermes", available: false }),
+          agent({ id: "claude", kind: "claude", name: "Claude Code", lastError: "启动失败" }),
+        ],
+        manifestProblems: [{ file: "broken.json", reason: "缺少 command" }],
+      }),
+    );
+    assert.equal(view.statusLabel, "已连接 · 待处理 1");
+    assert.deepEqual(view.agents[0], {
+      id: "codex",
+      name: "Codex",
+      state: "可用",
+      enabled: true,
+      available: true,
+      hasError: false,
+    });
+    assert.equal(view.agents[1].state, "未安装");
+    assert.equal(view.agents[1].available, false);
+    // 未安装的 lastError 不当作「出错」，不显示详情入口
+    assert.equal(view.agents[2].hasError, false);
+    // 装了但启动失败才算「出错」
+    assert.equal(view.agents[3].state, "出错");
+    assert.equal(view.agents[3].hasError, true);
+    assert.deepEqual(view.problems, [{ file: "broken.json", reason: "缺少 command" }]);
   });
 
   test("icon and tooltip follow connection and badge count", () => {

@@ -1,0 +1,187 @@
+import { BrowserWindow, ipcMain, nativeTheme, screen } from "electron";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { HostStatus } from "./host-controller.js";
+import { panelView } from "./tray-menu.js";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const PANEL_WIDTH = 344;
+const MIN_HEIGHT = 140;
+const MAX_HEIGHT = 620;
+const EDGE_GAP = 8;
+
+export type PanelAnchor = { x: number; y: number; width: number; height: number };
+
+export type PanelActions = {
+  status: () => HostStatus;
+  subscribe: (listener: (status: HostStatus) => void) => () => void;
+  toggleAgent: (agentId: string, enabled: boolean) => Promise<void>;
+  showAgentError: (agentId: string) => Promise<void>;
+  copyProblems: () => void;
+  refresh: () => Promise<void>;
+  quit: () => void;
+};
+
+/**
+ * 自绘托盘弹层
+ *
+ * 原生 Windows 菜单点任意项都会关闭，没法连续开关 Agent；
+ * 这里用一个无边框透明窗口承载同一份内容，点开关只更新数据，
+ * 点窗口外（blur）或 Esc 才关闭
+ */
+export class TrayPanel {
+  private win: BrowserWindow | undefined;
+  private unsubscribe: (() => void) | undefined;
+  private anchor: PanelAnchor | undefined;
+  private dialogOpen = false;
+  private height = 420;
+
+  constructor(private readonly actions: PanelActions) {
+    this.registerIpc();
+  }
+
+  isOpen(): boolean {
+    return Boolean(this.win);
+  }
+
+  toggle(anchor: PanelAnchor | undefined): void {
+    if (this.win) {
+      this.close();
+      return;
+    }
+    this.open(anchor);
+  }
+
+  close(): void {
+    const win = this.win;
+    if (!win) return;
+    this.win = undefined;
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
+    if (!win.isDestroyed()) win.close();
+  }
+
+  private open(anchor: PanelAnchor | undefined): void {
+    this.anchor = anchor;
+    const win = new BrowserWindow({
+      width: PANEL_WIDTH,
+      height: this.height,
+      show: false,
+      frame: false,
+      transparent: true,
+      backgroundColor: "#00000000",
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      skipTaskbar: true,
+      alwaysOnTop: true,
+      hasShadow: false,
+      webPreferences: {
+        preload: join(here, "preload.cjs"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    this.win = win;
+    win.setMenuBarVisibility(false);
+    win.setAlwaysOnTop(true, "pop-up-menu");
+    win.on("blur", () => {
+      if (!this.dialogOpen) this.close();
+    });
+    win.on("closed", () => {
+      this.unsubscribe?.();
+      this.unsubscribe = undefined;
+      if (this.win === win) this.win = undefined;
+    });
+    this.unsubscribe = this.actions.subscribe(() => this.pushView());
+    void win.loadFile(join(here, "panel", "index.html"));
+    win.once("ready-to-show", () => {
+      this.applyBounds();
+      win.show();
+      win.focus();
+    });
+  }
+
+  private pushView(): void {
+    const win = this.win;
+    if (!win || win.isDestroyed()) return;
+    win.webContents.send(
+      "panel:view",
+      panelView(this.actions.status()),
+      nativeTheme.shouldUseDarkColors ? "dark" : "light",
+    );
+  }
+
+  private applyBounds(): void {
+    const win = this.win;
+    if (!win || win.isDestroyed()) return;
+    win.setBounds(this.boundsFor(this.height));
+  }
+
+  private boundsFor(height: number) {
+    const anchor = this.resolvedAnchor();
+    const point = {
+      x: Math.round(anchor.x + anchor.width / 2),
+      y: Math.round(anchor.y + anchor.height / 2),
+    };
+    const work = screen.getDisplayNearestPoint(point).workArea;
+    const width = PANEL_WIDTH;
+    const maxX = work.x + work.width - width - EDGE_GAP;
+    const x = Math.min(Math.max(Math.round(anchor.x + anchor.width / 2 - width / 2), work.x + EDGE_GAP), maxX);
+    const above = point.y > work.y + work.height / 2;
+    const rawY = above ? anchor.y - height - 4 : anchor.y + anchor.height + 4;
+    const maxY = work.y + work.height - height - EDGE_GAP;
+    const y = Math.min(Math.max(rawY, work.y + EDGE_GAP), maxY);
+    return { x, y, width, height };
+  }
+
+  private resolvedAnchor(): PanelAnchor {
+    if (this.anchor && (this.anchor.width > 0 || this.anchor.height > 0)) return this.anchor;
+    const cursor = screen.getCursorScreenPoint();
+    return { x: cursor.x, y: cursor.y, width: 1, height: 1 };
+  }
+
+  private registerIpc(): void {
+    const fromPanel = (event: Electron.IpcMainEvent) =>
+      Boolean(this.win && !this.win.isDestroyed() && event.sender === this.win.webContents);
+
+    ipcMain.on("panel:ready", (event) => {
+      if (fromPanel(event)) this.pushView();
+    });
+    ipcMain.on("panel:resize", (event, value: unknown) => {
+      if (!fromPanel(event) || typeof value !== "number" || !Number.isFinite(value)) return;
+      const next = Math.round(Math.min(Math.max(value, MIN_HEIGHT), MAX_HEIGHT));
+      if (next === this.height) return;
+      this.height = next;
+      this.applyBounds();
+    });
+    ipcMain.on("panel:toggle", (event, payload: unknown) => {
+      if (!fromPanel(event)) return;
+      const data = payload as { agentId?: unknown; enabled?: unknown };
+      if (typeof data?.agentId !== "string" || typeof data?.enabled !== "boolean") return;
+      void this.actions.toggleAgent(data.agentId, data.enabled);
+    });
+    ipcMain.on("panel:error", (event, agentId: unknown) => {
+      if (!fromPanel(event) || typeof agentId !== "string") return;
+      this.dialogOpen = true;
+      void this.actions.showAgentError(agentId).finally(() => {
+        this.dialogOpen = false;
+      });
+    });
+    ipcMain.on("panel:copy-problems", (event) => {
+      if (fromPanel(event)) this.actions.copyProblems();
+    });
+    ipcMain.on("panel:refresh", (event) => {
+      if (fromPanel(event)) void this.actions.refresh();
+    });
+    ipcMain.on("panel:close", (event) => {
+      if (fromPanel(event)) this.close();
+    });
+    ipcMain.on("panel:quit", (event) => {
+      if (fromPanel(event)) this.actions.quit();
+    });
+  }
+}

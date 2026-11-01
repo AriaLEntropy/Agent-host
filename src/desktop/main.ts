@@ -1,21 +1,16 @@
-import { app, clipboard, dialog, Menu, nativeImage, Tray } from "electron";
+import { app, clipboard, dialog, nativeImage, Tray } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HostController, type HostStatus } from "./host-controller.js";
-import {
-  agentStateLabel,
-  buildTrayMenu,
-  trayIconName,
-  trayTooltip,
-  type TrayAction,
-  type TrayMenuNode,
-} from "./tray-menu.js";
+import { TrayPanel } from "./panel-window.js";
+import { agentStateLabel, trayIconName, trayTooltip } from "./tray-menu.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const iconDir = join(here, "icons");
 
 let controller: HostController | undefined;
 let tray: Tray | undefined;
+let panel: TrayPanel | undefined;
 let shuttingDown = false;
 let currentIconName = "";
 
@@ -23,23 +18,7 @@ function iconFor(status: HostStatus) {
   return nativeImage.createFromPath(join(iconDir, trayIconName(status)));
 }
 
-function menuFor(nodes: TrayMenuNode[]): Electron.MenuItemConstructorOptions[] {
-  return nodes.map((node) => {
-    if (node.kind === "separator") return { type: "separator" };
-    if (node.kind === "submenu") {
-      return { label: node.label, submenu: menuFor(node.submenu) };
-    }
-    const action = node.action;
-    return {
-      label: node.label,
-      enabled: node.enabled ?? true,
-      ...(node.checked === undefined ? {} : { type: "checkbox" as const, checked: node.checked }),
-      click: action ? () => void runAction(action) : undefined,
-    };
-  });
-}
-
-function render(status: HostStatus) {
+function renderTray(status: HostStatus) {
   if (!tray) return;
   const iconName = trayIconName(status);
   if (iconName !== currentIconName) {
@@ -47,37 +26,6 @@ function render(status: HostStatus) {
     currentIconName = iconName;
   }
   tray.setToolTip(trayTooltip(status));
-  tray.setContextMenu(Menu.buildFromTemplate(menuFor(buildTrayMenu(status))));
-}
-
-async function runAction(action: TrayAction): Promise<void> {
-  if (!controller) return;
-  switch (action.type) {
-    case "quit":
-      app.quit();
-      return;
-    case "refresh-agents":
-      await controller.refreshAgents();
-      return;
-    case "copy-manifest-problems": {
-      const text = controller
-        .status()
-        .manifestProblems.map((problem) => `${problem.file} · ${problem.reason}`)
-        .join("\n");
-      clipboard.writeText(text);
-      return;
-    }
-    case "toggle-agent": {
-      const agent = controller.status().agents.find((item) => item.id === action.agentId);
-      if (!agent) return;
-      const error = await controller.setAgentEnabled(agent, action.enabled);
-      if (error) await showAgentError(agent.id, error);
-      return;
-    }
-    case "show-agent-error":
-      await showAgentError(action.agentId);
-      return;
-  }
 }
 
 async function showAgentError(agentId: string, detail?: string): Promise<void> {
@@ -98,6 +46,10 @@ async function showAgentError(agentId: string, detail?: string): Promise<void> {
   }
 }
 
+function togglePanel(): void {
+  panel?.toggle(tray?.getBounds());
+}
+
 async function bootstrap(): Promise<void> {
   if (!app.requestSingleInstanceLock()) {
     app.quit();
@@ -107,9 +59,10 @@ async function bootstrap(): Promise<void> {
   app.setAppUserModelId("com.agentbus.host");
   app.dock?.hide();
 
-  controller = new HostController();
+  const host = new HostController();
+  controller = host;
   try {
-    await controller.start();
+    await host.start();
   } catch (error) {
     dialog.showErrorBox(
       "AgentBus 启动失败",
@@ -119,14 +72,36 @@ async function bootstrap(): Promise<void> {
     return;
   }
 
-  const status = controller.status();
+  panel = new TrayPanel({
+    status: () => host.status(),
+    subscribe: (listener) => host.subscribe(listener),
+    toggleAgent: async (agentId, enabled) => {
+      const agent = host.status().agents.find((item) => item.id === agentId);
+      if (!agent) return;
+      const error = await host.setAgentEnabled(agent, enabled);
+      if (error) await showAgentError(agentId, error);
+    },
+    showAgentError: (agentId) => showAgentError(agentId),
+    copyProblems: () => {
+      const text = host
+        .status()
+        .manifestProblems.map((problem) => `${problem.file} · ${problem.reason}`)
+        .join("\n");
+      clipboard.writeText(text);
+    },
+    refresh: () => host.refreshAgents(),
+    quit: () => app.quit(),
+  });
+
+  const status = host.status();
   tray = new Tray(iconFor(status));
   currentIconName = trayIconName(status);
   tray.setToolTip(trayTooltip(status));
-  // Windows 习惯：左键也展开菜单；右键由 setContextMenu 处理
-  tray.on("click", () => tray?.popUpContextMenu());
-  controller.subscribe(render);
-  render(status);
+  // 左键和右键都打开自绘弹层；再点一次托盘收起
+  tray.on("click", togglePanel);
+  tray.on("right-click", togglePanel);
+  host.subscribe(renderTray);
+  renderTray(status);
 }
 
 app.whenReady().then(bootstrap).catch((error) => {
@@ -143,5 +118,6 @@ app.on("before-quit", (event) => {
   if (shuttingDown) return;
   event.preventDefault();
   shuttingDown = true;
+  panel?.close();
   void controller?.stop().finally(() => app.quit());
 });

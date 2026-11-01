@@ -1,97 +1,11 @@
 import type { HostStatus } from "./host-controller.js";
 
-export type TrayAction =
-  | { type: "quit" }
-  | { type: "toggle-agent"; agentId: string; enabled: boolean }
-  | { type: "show-agent-error"; agentId: string }
-  | { type: "copy-manifest-problems" }
-  | { type: "refresh-agents" };
-
-export type TrayMenuNode =
-  | {
-      kind: "item";
-      label: string;
-      enabled?: boolean;
-      checked?: boolean;
-      action?: TrayAction;
-    }
-  | { kind: "separator" }
-  | {
-      kind: "submenu";
-      label: string;
-      submenu: TrayMenuNode[];
-    };
-
-/**
- * 托盘菜单模板（纯数据，不依赖 Electron）。
- *
- * 第一版只有 FR-14.6.1 的原生外壳：连接状态 + 待处理数、本机 Agent、退出。
- * 配对窗口与设置窗口要等设计通过后，再把对应菜单项加进来。
- */
-export function buildTrayMenu(status: HostStatus): TrayMenuNode[] {
-  const nodes: TrayMenuNode[] = [
-    { kind: "item", label: statusLabel(status), enabled: false },
-    { kind: "separator" },
-    { kind: "submenu", label: "本机 Agent", submenu: agentMenu(status) },
-    { kind: "separator" },
-    { kind: "item", label: "退出", action: { type: "quit" } },
-  ];
-  return nodes;
-}
-
-function statusLabel(status: HostStatus): string {
+export function statusLabel(status: HostStatus): string {
   if (status.connection === "unpaired") return "未配对";
   if (status.connection === "disconnected") return "连接中断";
   return status.pendingCount > 0
     ? `已连接 · 待处理 ${status.pendingCount}`
     : "已连接 · 无待处理";
-}
-
-function agentMenu(status: HostStatus): TrayMenuNode[] {
-  if (status.agents.length === 0) {
-    return [{ kind: "item", label: "未发现本机 Agent", enabled: false }];
-  }
-  const nodes: TrayMenuNode[] = [];
-  for (const agent of status.agents) {
-    nodes.push({
-      kind: "item",
-      label: `${agent.name} · ${agentStateLabel(agent)}`,
-      checked: agent.enabled,
-      action: { type: "toggle-agent", agentId: agent.id, enabled: !agent.enabled },
-    });
-  }
-  const errored = status.agents.filter((agent) => Boolean(agent.lastError));
-  if (errored.length > 0) {
-    nodes.push({ kind: "separator" });
-    for (const agent of errored) {
-      nodes.push({
-        kind: "item",
-        label: `查看 ${agent.name} 错误…`,
-        action: { type: "show-agent-error", agentId: agent.id },
-      });
-    }
-  }
-  if (status.manifestProblems.length > 0) {
-    nodes.push({ kind: "separator" });
-    nodes.push({
-      kind: "submenu",
-      label: `ACP 清单问题（${status.manifestProblems.length}）`,
-      submenu: [
-        ...status.manifestProblems.map(
-          (problem): TrayMenuNode => ({
-            kind: "item",
-            label: `${problem.file} · ${problem.reason}`,
-            enabled: false,
-          }),
-        ),
-        { kind: "separator" },
-        { kind: "item", label: "复制诊断信息", action: { type: "copy-manifest-problems" } },
-      ],
-    });
-  }
-  nodes.push({ kind: "separator" });
-  nodes.push({ kind: "item", label: "刷新列表", action: { type: "refresh-agents" } });
-  return nodes;
 }
 
 /** 状态词只取需求里的四种：未安装 / 已停用 / 出错 / 可用 */
@@ -118,8 +32,8 @@ export function trayTooltip(status: HostStatus): string {
 }
 
 /**
- * 托盘图标文件：三态各一张；已连接且有队列时叠 1–9 / 9+ 角标。
- * 资产放在 `src/desktop/icons/`，跟菜单模板分开，方便做视觉替换。
+ * 托盘图标文件：三态各一张；已连接且有队列时叠 1–9 / 9+ 角标
+ * 资产放在 `src/desktop/icons/`，跟弹层内容分开，方便做视觉替换
  */
 export function trayIconName(status: Pick<HostStatus, "connection" | "pendingCount">): string {
   if (status.connection === "unpaired") return "tray-unpaired.png";
@@ -127,4 +41,51 @@ export function trayIconName(status: Pick<HostStatus, "connection" | "pendingCou
   if (status.pendingCount <= 0) return "tray-connected.png";
   if (status.pendingCount > 9) return "tray-connected-9plus.png";
   return `tray-connected-${status.pendingCount}.png`;
+}
+
+export type PanelAgent = {
+  id: string;
+  name: string;
+  state: string;
+  enabled: boolean;
+  available: boolean;
+  hasError: boolean;
+};
+
+export type PanelView = {
+  connection: HostStatus["connection"];
+  statusLabel: string;
+  hostName: string;
+  pendingCount: number;
+  agents: PanelAgent[];
+  problems: { file: string; reason: string }[];
+};
+
+/**
+ * 自绘弹层的数据形状：文案和状态在这一层算好，HTML 只负责画
+ * 这样菜单/弹层/以后别的入口共用同一套状态判定
+ */
+export function panelView(status: HostStatus): PanelView {
+  return {
+    connection: status.connection,
+    statusLabel: statusLabel(status),
+    hostName: status.hostName,
+    pendingCount: status.pendingCount,
+    agents: status.agents.map((agent) => {
+      const state = agentStateLabel(agent);
+      return {
+        id: agent.id,
+        name: agent.name,
+        state,
+        enabled: agent.enabled,
+        available: agent.available,
+        // 只有「装了但出错」才给详情入口；未安装/已停用不制造多余行
+        hasError: state === "出错",
+      };
+    }),
+    problems: status.manifestProblems.map((problem) => ({
+      file: problem.file,
+      reason: problem.reason,
+    })),
+  };
 }

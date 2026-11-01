@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentBus</title>
+<style>
+  :root {
+    --panel: #F5F5F7;
+    --text: #1D1B20;
+    --sub: #57534E;
+    --muted: #8E8E93;
+    --line: rgba(29, 27, 32, 0.08);
+    --hover: rgba(29, 27, 32, 0.05);
+    --track-off: #E4E4E7;
+    --track-on: #1D1B20;
+    --knob: #FFFFFF;
+    --danger: #D92D20;
+    --warn: #9A6A1F;
+    --ok: #557A63;
+    --warn-dot: #C98A2E;
+  }
+  html.dark {
+    --panel: #1C1C1E;
+    --text: #F2F2F7;
+    --sub: #C7C7CC;
+    --muted: #8E8E93;
+    --line: rgba(255, 255, 255, 0.10);
+    --hover: rgba(255, 255, 255, 0.06);
+    --track-off: #3A3A3C;
+    --track-on: #F2F2F7;
+    --knob: #1C1C1E;
+    --danger: #FF6961;
+    --warn: #E0B15C;
+    --ok: #7FA98D;
+    --warn-dot: #E0B15C;
+  }
+  html, body {
+    margin: 0;
+    background: transparent;
+    font-family: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
+      "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+  .wrap { padding: 12px; }
+  .panel {
+    width: 320px;
+    box-sizing: border-box;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
+    color: var(--text);
+    overflow-x: hidden;
+    overflow-y: auto;
+    max-height: 596px;
+    scrollbar-width: thin;
+  }
+  .header { padding: 14px 14px 10px; }
+  .statusline { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.connected { background: var(--ok); }
+  .dot.disconnected { background: var(--warn-dot); }
+  .host { margin: 4px 0 0 15px; font-size: 11px; color: var(--muted); }
+  .section { padding: 0 8px; }
+  .section-title { padding: 8px 6px 4px; font-size: 11px; color: var(--muted); }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .row:hover { background: var(--hover); }
+  .row.disabled { cursor: default; opacity: 0.55; }
+  .row.disabled:hover { background: transparent; }
+  .name { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .state { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .state.error { color: var(--danger); }
+  .state.off { color: var(--warn); }
+  .error-btn {
+    border: none;
+    background: transparent;
+    padding: 2px 4px;
+    font: inherit;
+    font-size: 11px;
+    color: var(--muted);
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  .error-btn:hover { background: var(--hover); color: var(--text); }
+  .switch {
+    position: relative;
+    width: 34px;
+    height: 20px;
+    border-radius: 10px;
+    background: var(--track-off);
+    flex: none;
+    transition: background 0.15s ease;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #FFFFFF;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    transition: transform 0.15s ease;
+  }
+  html.dark .switch::after { background: var(--knob); }
+  .switch.on { background: var(--track-on); }
+  html.dark .switch.on::after { background: var(--knob); }
+  .switch.on::after { transform: translateX(14px); }
+  .switch.disabled { opacity: 0.35; }
+  .empty { padding: 8px 8px 10px; font-size: 12px; color: var(--muted); }
+  .problems { margin: 6px 8px 0; border-top: 1px solid var(--line); padding-top: 2px; }
+  .problems-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 6px 5px;
+    font-size: 11px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .problem { padding: 3px 6px 5px; font-size: 11px; color: var(--muted); line-height: 1.45; word-break: break-all; }
+  .problem b { display: block; font-weight: 600; color: var(--sub); }
+  .link { display: inline-block; padding: 4px 6px; font-size: 11px; color: var(--sub); cursor: pointer; border-radius: 4px; }
+  .link:hover { background: var(--hover); color: var(--text); }
+  .footer {
+    display: flex;
+    justify-content: space-between;
+    border-top: 1px solid var(--line);
+    margin-top: 8px;
+    padding: 6px 10px 8px;
+  }
+  .footer button {
+    border: none;
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    color: var(--sub);
+    padding: 6px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .footer button:hover { background: var(--hover); color: var(--text); }
+  .footer button.quit { color: var(--danger); }
+</style>
+</head>
+<body>
+<div class="wrap"><div class="panel" id="panel"></div></div>
+<script>
+  const api = window.agentbus;
+  let view = null;
+  let problemsOpen = false;
+
+  function esc(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function stateClass(agent) {
+    if (agent.state === "出错") return "state error";
+    if (agent.state === "已停用") return "state off";
+    return "state";
+  }
+
+  function agentRow(agent) {
+    const classes = ["row"];
+    if (!agent.available) classes.push("disabled");
+    const errorButton = agent.hasError
+      ? `<button class="error-btn" data-error="${esc(agent.id)}" title="查看错误">详情</button>`
+      : "";
+    const switchClasses = ["switch"];
+    if (agent.available && agent.enabled) switchClasses.push("on");
+    if (!agent.available) switchClasses.push("disabled");
+    return `<div class="${classes.join(" ")}" data-agent="${esc(agent.id)}">
+      <span class="name">${esc(agent.name)}</span>
+      <span class="${stateClass(agent)}">${esc(agent.state)}</span>
+      ${errorButton}
+      <span class="${switchClasses.join(" ")}"></span>
+    </div>`;
+  }
+
+  function problemsSection(items) {
+    if (!items.length) return "";
+    const rows = items
+      .map((item) => `<div class="problem"><b>${esc(item.file)}</b>${esc(item.reason)}</div>`)
+      .join("");
+    const body = problemsOpen
+      ? `${rows}<span class="link" data-action="copy-problems">复制诊断信息</span>`
+      : "";
+    return `<div class="problems">
+      <div class="problems-head" data-action="toggle-problems">
+        <span>ACP 清单问题（${items.length}）</span>
+        <span>${problemsOpen ? "收起" : "展开"}</span>
+      </div>
+      ${body}
+    </div>`;
+  }
+
+  function render() {
+    if (!view) return;
+    const agents = view.agents.length
+      ? view.agents.map(agentRow).join("")
+      : `<div class="empty">未发现本机 Agent</div>`;
+    document.getElementById("panel").innerHTML = `
+      <div class="header">
+        <div class="statusline"><span class="dot ${esc(view.connection)}"></span>${esc(view.statusLabel)}</div>
+        <div class="host">${esc(view.hostName)}</div>
+      </div>
+      <div class="section">
+        <div class="section-title">本机 Agent</div>
+        ${agents}
+      </div>
+      ${problemsSection(view.problems)}
+      <div class="footer">
+        <button data-action="refresh">刷新列表</button>
+        <button class="quit" data-action="quit">退出</button>
+      </div>`;
+    requestAnimationFrame(() => {
+      api.resize(Math.ceil(document.querySelector(".wrap").scrollHeight));
+    });
+  }
+
+  document.getElementById("panel").addEventListener("click", (event) => {
+    const target = event.target;
+    const actionEl = target.closest("[data-action]");
+    if (actionEl) {
+      const action = actionEl.getAttribute("data-action");
+      if (action === "refresh") api.refresh();
+      if (action === "quit") api.quit();
+      if (action === "copy-problems") api.copyProblems();
+      if (action === "toggle-problems") {
+        problemsOpen = !problemsOpen;
+        render();
+      }
+      return;
+    }
+    const errorEl = target.closest("[data-error]");
+    if (errorEl) {
+      api.showError(errorEl.getAttribute("data-error"));
+      return;
+    }
+    const row = target.closest("[data-agent]");
+    if (row && view) {
+      const agent = view.agents.find((item) => item.id === row.getAttribute("data-agent"));
+      if (agent && agent.available) api.toggle(agent.id, !agent.enabled);
+    }
+  });
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") api.close();
+  });
+  window.addEventListener("contextmenu", (event) => event.preventDefault());
+  // 阴影留白也算「面板外」：点到 12px 透明边就收起
+  document.body.addEventListener("click", (event) => {
+    const target = event.target;
+    if (target === document.body || (target.classList && target.classList.contains("wrap"))) {
+      api.close();
+    }
+  });
+
+  api.onView((next, theme) => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    view = next;
+    render();
+  });
+  api.ready();
+</script>
+</body>
+</html>
