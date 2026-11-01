@@ -5,7 +5,7 @@ import type { HostStatus } from "./host-controller.js";
 import { panelView } from "./tray-menu.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const PANEL_WIDTH = 292;
+const PANEL_WIDTH = 272;
 const MIN_HEIGHT = 140;
 const MAX_HEIGHT = 580;
 const EDGE_GAP = 8;
@@ -145,7 +145,10 @@ export class TrayPanel {
     const work = screen.getDisplayNearestPoint(point).workArea;
     const width = PANEL_WIDTH;
     const maxX = work.x + work.width - width - EDGE_GAP;
-    const x = Math.min(Math.max(Math.round(anchor.x + anchor.width / 2 - width / 2), work.x + EDGE_GAP), maxX);
+    // 面板贴着托盘图标左侧，避免盖住 Windows 的托盘溢出层
+    const leftOfAnchor = Math.round(anchor.x - width - 10);
+    const centered = Math.round(anchor.x + anchor.width / 2 - width / 2);
+    const x = Math.min(Math.max(leftOfAnchor >= work.x + EDGE_GAP ? leftOfAnchor : centered, work.x + EDGE_GAP), maxX);
     // 任务栏在底部时固定贴着工作区底边，不再依赖托盘图标上报的坐标
     const display = screen.getDisplayNearestPoint(point);
     const taskbarAtBottom = work.y + work.height < display.bounds.y + display.bounds.height;
