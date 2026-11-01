@@ -1,10 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { loadCommandLog, setCommandLogPath } from "./bus/commands.js";
-import { loadBusState } from "./bus/persistence.js";
-import { busStore, hostPlatform } from "./bus/store.js";
 import { discoverAgents, type AgentSpec, type ManifestProblem } from "./connectors/discover.js";
 import {
   DEFAULT_CHECK_PROMPT,
@@ -15,56 +12,23 @@ import {
   probeErrorLabel,
   probeExitCode,
 } from "./connectors/probe.js";
-import {
-  flushConnectorSettings,
-  refreshAgents,
-  startConnectorWatcher,
-  stopConnectorWatcher,
-} from "./connectors/runtime.js";
 import { connectorSettingsPath } from "./connectors/settings-store.js";
 import {
   checkRelayHealth,
-  ensureAgentId,
-  hostDataDir,
-  loadConfig,
   requireRelayConfig,
   saveConfig,
 } from "./config.js";
 import {
-  createLogger,
   defaultLogDirectory,
   exportDiagnostics,
-  initializeLogging,
-  logPublic,
   shutdownLogging,
 } from "./platform/log.js";
+import { prepareHost, startHost } from "./host/start-host.js";
 import { pair } from "./tunnel/pairing.js";
-import { RelayClient } from "./tunnel/relay-client.js";
 import { PLUGIN_VERSION } from "./tunnel/version.js";
 
 async function prepare() {
-  // 日志初始化失败不能挡住启动：文件出口失败时退回 stderr。
-  await initializeLogging().catch(() => undefined);
-  setCommandLogPath(join(hostDataDir(), "commands.json"));
-  await loadCommandLog();
-  const config = await ensureAgentId(await loadConfig());
-  const statePath = join(hostDataDir(), "bus-state.json");
-  busStore.configurePersistence(statePath);
-  const state = await loadBusState(statePath);
-  if (state) busStore.hydrate(state, config.agentId ?? "");
-  busStore.identify({
-    agentId: config.agentId ?? "",
-    hostName: config.hostName,
-    hostVersion: PLUGIN_VERSION,
-    platform: hostPlatform(),
-  });
-  const found = await refreshAgents().catch(() => undefined);
-  createLogger("agent-host", "lifecycle").info("host prepared", {
-    version: logPublic(PLUGIN_VERSION),
-    platform: process.platform,
-    agents: found?.agents.length ?? 0,
-  });
-  return config;
+  return prepareHost();
 }
 
 export type AgentDiscoveryResult = {
@@ -180,10 +144,8 @@ program
   .command("up")
   .description("Run in the foreground and connect to Relay")
   .action(async () => {
-    let config = requireRelayConfig(await prepare(), "up");
-    await checkRelayHealth(config);
-    if (!config.hostToken) config = await pair(config);
-    const client = new RelayClient(config, {
+    const running = await startHost({
+      pairIfMissing: true,
       onAuthRejected: (detail) => {
         console.error(
           `This computer is no longer paired (${detail}). Run "npm run dev -- pair" (or "npm start -- pair") and scan the QR again.`,
@@ -191,22 +153,9 @@ program
         process.exit(1);
       },
     });
-    await client.start();
-    // 清单增删改后自动重新发现 agent；失败只记日志，不影响隧道。
-    await startConnectorWatcher();
-    let stopping = false;
     const stop = async () => {
-      if (stopping) return;
-      stopping = true;
-      try {
-        stopConnectorWatcher();
-        await flushConnectorSettings();
-        await busStore.flushPersistence();
-        await shutdownLogging();
-      } finally {
-        client.stop();
-        process.exit(0);
-      }
+      await running.stop();
+      process.exit(0);
     };
     process.on("SIGINT", () => void stop());
     process.on("SIGTERM", () => void stop());

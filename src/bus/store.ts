@@ -392,6 +392,14 @@ export class TaskStore {
     this.persistTimer.unref?.();
   }
 
+  /** 托盘角标：待审批 / 待回复任务数，口径与手机快照的可见面一致 */
+  pendingRequestCount(): number {
+    const dismissals = this.dismissals();
+    return this.tasks.filter(
+      (task) => !dismissals.hides(task) && Boolean(task.pendingRequest),
+    ).length;
+  }
+
   snapshot(): Record<string, unknown> {
     const now = new Date().toISOString();
     // 协议 3.8：被移出的项目及其全部来源会话只从手机可见面消失，

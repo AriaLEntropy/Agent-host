@@ -41,7 +41,7 @@ import {
 import { createClaudeConnector, createClaudeMessageReader } from "./claude/index.js";
 import { createCodexConnector, createCodexMessageReader } from "./codex/index.js";
 import { isDedicatedKind, type DedicatedKind } from "./descriptors.js";
-import { discoverAgents, type AgentSpec } from "./discover.js";
+import { discoverAgents, type AgentSpec, type ManifestProblem } from "./discover.js";
 import {
   createDshConnector,
   createDshMessageReader,
@@ -373,6 +373,8 @@ export class AcpProcess {
 
 const specs: AgentSpec[] = [];
 const hiddenRegistryIds = new Set<string>();
+/** 最近一次发现里的 ACP 清单问题；托盘「ACP 清单问题」直接用 */
+let manifestProblems: ManifestProblem[] = [];
 const processes = new Map<string, AcpProcess>();
 const sessions = new Map<string, LiveSession>();
 const connectorModels = new Map<string, BusModelOption[]>();
@@ -1126,6 +1128,9 @@ export async function refreshAgents(
   discover: AgentDiscovery = (input) => discoverAgents(input),
 ) {
   const found = await discover({ hiddenRegistryIds });
+  manifestProblems = Array.isArray(found.problems)
+    ? (found.problems as ManifestProblem[]).slice()
+    : [];
   // 先读本机设置，让 useAgents 在构建快照前套用启停覆盖。
   await ensureConnectorSettings();
   // 启动时把上次记下的 ACP 会话补回 store（只补缺失 id，不覆盖 bus-state），
@@ -1849,6 +1854,63 @@ async function readOpenCodeMessages(
   }
 }
 
+/** 托盘用的本机 Agent 摘要；不经过手机快照，也不需要模型列表。 */
+export type LocalAgentSummary = {
+  id: string;
+  kind: AgentSpec["kind"];
+  name: string;
+  available: boolean;
+  enabled: boolean;
+  status?: "ok" | "degraded" | "error";
+  lastError?: string;
+  /** 开关调用时的协议引用：acp 用 connectorId，其他来源用 kind。 */
+  connector: string;
+  connectorId?: string;
+};
+
+export function localAgents(): LocalAgentSummary[] {
+  return specs.map((agent) => ({
+    id: agent.id,
+    kind: agent.kind,
+    name: agent.name,
+    available: agent.available,
+    enabled: agent.enabled,
+    ...(agent.status ? { status: agent.status } : {}),
+    ...(agent.lastError ? { lastError: agent.lastError } : {}),
+    connector: agent.kind === "acp" ? "acp" : agent.kind,
+    ...(agent.kind === "acp" ? { connectorId: agent.id } : {}),
+  }));
+}
+
+export function localManifestProblems(): ManifestProblem[] {
+  return manifestProblems.slice();
+}
+
+/**
+ * 本机开关（托盘）：与手机 `setConnectorEnabled` 复用同一套生效逻辑，
+ * 不经过命令日志，也不依赖手机来触发快照。
+ */
+export async function applyConnectorEnabled(
+  connector: string,
+  connectorId: string | undefined,
+  enabled: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  const spec = specForRef(connector, connectorId);
+  if (!spec) return { ok: false, error: "no connector is available" };
+  spec.enabled = enabled;
+  if (!enabled) destroyForSpec(spec);
+  // 开关存在本机：重启后仍按用户的选择启用/停用。
+  const settings = await ensureConnectorSettings();
+  settings.setEnabled(spec.kind, settingsConnectorId(spec), enabled);
+  syncAcpReconcile(specs);
+  // 上游 `AcpHub.applyEnabledState`：刚启用的 agent 立刻刷一次列表，不等下一拍。
+  if (enabled && spec.kind === "acp" && acpReconcileEligible(spec)) {
+    void reconcileAcpSessionsNow().catch(() => undefined);
+  }
+  busStore.setAgents(specs.map(listed), true);
+  return { ok: true };
+}
+
 /**
  * 协议 3.9：启停一个 Agent。停用时立刻销毁实例（dsh 也停），
  * 启用只改开关，下一次命令按需惰性重建。
@@ -1857,23 +1919,13 @@ async function setConnectorEnabled(
   commandId: string,
   payload: Record<string, unknown>,
 ): Promise<BusCommandResult> {
-  const spec = specForRef(payload.connector, payload.connectorId);
-  if (!spec) return done(commandId, false, "no connector is available");
   if (typeof payload.enabled !== "boolean") return done(commandId, false, "enabled is missing");
-  spec.enabled = payload.enabled;
-  if (!payload.enabled) destroyForSpec(spec);
-  // 开关存在本机：重启后仍按用户的选择启用/停用。
-  const settings = await ensureConnectorSettings();
-  settings.setEnabled(spec.kind, settingsConnectorId(spec), payload.enabled);
-  // 停用后不再对账；重新启用时基线清空，回来第一轮仍静默。
-  syncAcpReconcile(specs);
-  // 上游 `AcpHub.applyEnabledState`：刚启用的 agent 立刻刷一次列表，不等下一拍
-  // （没在跑的 agent 下一拍可能要等十分钟）。刷新放后台，不拖住这条命令。
-  if (payload.enabled && spec.kind === "acp" && acpReconcileEligible(spec)) {
-    void reconcileAcpSessionsNow().catch(() => undefined);
-  }
-  busStore.setAgents(specs.map(listed), true);
-  return done(commandId, true);
+  const result = await applyConnectorEnabled(
+    typeof payload.connector === "string" ? payload.connector : "",
+    typeof payload.connectorId === "string" ? payload.connectorId : undefined,
+    payload.enabled,
+  );
+  return done(commandId, result.ok, result.error);
 }
 
 /**
