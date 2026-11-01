@@ -1,3 +1,4 @@
+import { agentIconFile } from "./agent-icons.js";
 import type { HostStatus } from "./host-controller.js";
 
 export function statusLabel(status: HostStatus): string {
@@ -50,6 +51,8 @@ export type PanelAgent = {
   enabled: boolean;
   available: boolean;
   hasError: boolean;
+  icon: string;
+  errorText?: string;
 };
 
 export type PanelView = {
@@ -81,6 +84,9 @@ export function panelView(status: HostStatus): PanelView {
         available: agent.available,
         // 只有「装了但出错」才给详情入口；未安装/已停用不制造多余行
         hasError: state === "出错",
+        icon: `../icons/agents/${agentIconFile(agent.kind, agent.connectorId)}`,
+        // 未安装的原因也展示出来，用户能直接看到是没装还是装坏了
+        ...(agent.lastError ? { errorText: agent.lastError } : {}),
       };
     }),
     problems: status.manifestProblems.map((problem) => ({

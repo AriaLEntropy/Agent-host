@@ -5,9 +5,9 @@ import type { HostStatus } from "./host-controller.js";
 import { panelView } from "./tray-menu.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const PANEL_WIDTH = 344;
+const PANEL_WIDTH = 292;
 const MIN_HEIGHT = 140;
-const MAX_HEIGHT = 620;
+const MAX_HEIGHT = 580;
 const EDGE_GAP = 8;
 
 export type PanelAnchor = { x: number; y: number; width: number; height: number };
@@ -34,7 +34,9 @@ export class TrayPanel {
   private unsubscribe: (() => void) | undefined;
   private anchor: PanelAnchor | undefined;
   private dialogOpen = false;
-  private height = 420;
+  private height = 360;
+  private shown = false;
+  private shownAt = 0;
 
   constructor(private readonly actions: PanelActions) {
     this.registerIpc();
@@ -63,6 +65,7 @@ export class TrayPanel {
 
   private open(anchor: PanelAnchor | undefined): void {
     this.anchor = anchor;
+    this.shown = false;
     const win = new BrowserWindow({
       width: PANEL_WIDTH,
       height: this.height,
@@ -89,7 +92,10 @@ export class TrayPanel {
     win.setMenuBarVisibility(false);
     win.setAlwaysOnTop(true, "pop-up-menu");
     win.on("blur", () => {
-      if (!this.dialogOpen) this.close();
+      // 从托盘溢出层弹出时，系统收起飞出层会先抢一次焦点；
+      // 300ms 内的 blur 不算「点了面板外」
+      if (this.dialogOpen || Date.now() - this.shownAt < 300) return;
+      this.close();
     });
     win.on("closed", () => {
       this.unsubscribe?.();
@@ -98,10 +104,9 @@ export class TrayPanel {
     });
     this.unsubscribe = this.actions.subscribe(() => this.pushView());
     void win.loadFile(join(here, "panel", "index.html"));
+    // 先等页面量完真实高度再显示，避免出现后突然变高、位置往下跳
     win.once("ready-to-show", () => {
-      this.applyBounds();
-      win.show();
-      win.focus();
+      setTimeout(() => this.showWhenReady(), 300);
     });
   }
 
@@ -113,6 +118,16 @@ export class TrayPanel {
       panelView(this.actions.status()),
       nativeTheme.shouldUseDarkColors ? "dark" : "light",
     );
+  }
+
+  private showWhenReady(): void {
+    const win = this.win;
+    if (!win || win.isDestroyed() || this.shown) return;
+    this.shown = true;
+    this.shownAt = Date.now();
+    this.applyBounds();
+    win.show();
+    win.focus();
   }
 
   private applyBounds(): void {
@@ -131,10 +146,21 @@ export class TrayPanel {
     const width = PANEL_WIDTH;
     const maxX = work.x + work.width - width - EDGE_GAP;
     const x = Math.min(Math.max(Math.round(anchor.x + anchor.width / 2 - width / 2), work.x + EDGE_GAP), maxX);
+    // 任务栏在底部时固定贴着工作区底边，不再依赖托盘图标上报的坐标
+    const display = screen.getDisplayNearestPoint(point);
+    const taskbarAtBottom = work.y + work.height < display.bounds.y + display.bounds.height;
+    const taskbarAtTop = work.y > display.bounds.y;
     const above = point.y > work.y + work.height / 2;
-    const rawY = above ? anchor.y - height - 4 : anchor.y + anchor.height + 4;
+    let y: number;
+    if (taskbarAtBottom) {
+      y = work.y + work.height - height - 6;
+    } else if (taskbarAtTop) {
+      y = work.y + 6;
+    } else {
+      y = above ? anchor.y - height - 4 : anchor.y + anchor.height + 4;
+    }
     const maxY = work.y + work.height - height - EDGE_GAP;
-    const y = Math.min(Math.max(rawY, work.y + EDGE_GAP), maxY);
+    y = Math.min(Math.max(y, work.y + EDGE_GAP), maxY);
     return { x, y, width, height };
   }
 
@@ -154,9 +180,11 @@ export class TrayPanel {
     ipcMain.on("panel:resize", (event, value: unknown) => {
       if (!fromPanel(event) || typeof value !== "number" || !Number.isFinite(value)) return;
       const next = Math.round(Math.min(Math.max(value, MIN_HEIGHT), MAX_HEIGHT));
-      if (next === this.height) return;
-      this.height = next;
-      this.applyBounds();
+      if (next !== this.height) {
+        this.height = next;
+        this.applyBounds();
+      }
+      this.showWhenReady();
     });
     ipcMain.on("panel:toggle", (event, payload: unknown) => {
       if (!fromPanel(event)) return;

@@ -19,6 +19,7 @@
     --warn: #9A6A1F;
     --ok: #557A63;
     --warn-dot: #C98A2E;
+    --icon-bg: #ECECEF;
   }
   html.dark {
     --panel: #1C1C1E;
@@ -34,6 +35,7 @@
     --warn: #E0B15C;
     --ok: #7FA98D;
     --warn-dot: #E0B15C;
+    --icon-bg: #2C2C2E;
   }
   html, body {
     margin: 0;
@@ -43,59 +45,80 @@
     -webkit-font-smoothing: antialiased;
     user-select: none;
   }
-  .wrap { padding: 12px; }
+  .wrap { padding: 10px; }
   .panel {
-    width: 320px;
+    width: 272px;
     box-sizing: border-box;
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 12px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
+    border-radius: 11px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
     color: var(--text);
     overflow-x: hidden;
     overflow-y: auto;
-    max-height: 596px;
+    max-height: 560px;
     scrollbar-width: thin;
   }
-  .header { padding: 14px 14px 10px; }
-  .statusline { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+  .header { padding: 12px 12px 8px; }
+  .statusline { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex: none; }
   .dot.connected { background: var(--ok); }
   .dot.disconnected { background: var(--warn-dot); }
-  .host { margin: 4px 0 0 15px; font-size: 11px; color: var(--muted); }
-  .section { padding: 0 8px; }
-  .section-title { padding: 8px 6px 4px; font-size: 11px; color: var(--muted); }
+  .host { margin: 3px 0 0 13px; font-size: 10.5px; color: var(--muted); }
+  .section { padding: 0 6px; }
+  .section-title { padding: 5px 6px 2px; font-size: 10.5px; color: var(--muted); }
   .row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 8px;
-    border-radius: 8px;
+    gap: 8px;
+    padding: 5px 6px;
+    border-radius: 7px;
     cursor: pointer;
   }
   .row:hover { background: var(--hover); }
-  .row.disabled { cursor: default; opacity: 0.55; }
+  .row.disabled { cursor: default; opacity: 0.52; }
   .row.disabled:hover { background: transparent; }
-  .name { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .state { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .icon {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--icon-bg);
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .name {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .state { font-size: 10.5px; color: var(--muted); white-space: nowrap; flex: none; }
   .state.error { color: var(--danger); }
   .state.off { color: var(--warn); }
-  .error-btn {
-    border: none;
-    background: transparent;
-    padding: 2px 4px;
-    font: inherit;
-    font-size: 11px;
+  .err {
+    font-size: 10.5px;
+    line-height: 14px;
     color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     cursor: pointer;
-    border-radius: 4px;
   }
-  .error-btn:hover { background: var(--hover); color: var(--text); }
+  .err:hover { color: var(--text); text-decoration: underline; }
   .switch {
     position: relative;
-    width: 34px;
-    height: 20px;
-    border-radius: 10px;
+    width: 30px;
+    height: 18px;
+    border-radius: 9px;
     background: var(--track-off);
     flex: none;
     transition: background 0.15s ease;
@@ -105,48 +128,47 @@
     position: absolute;
     top: 2px;
     left: 2px;
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
     background: #FFFFFF;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
     transition: transform 0.15s ease;
   }
-  html.dark .switch::after { background: var(--knob); }
   .switch.on { background: var(--track-on); }
   html.dark .switch.on::after { background: var(--knob); }
-  .switch.on::after { transform: translateX(14px); }
+  .switch.on::after { transform: translateX(12px); }
   .switch.disabled { opacity: 0.35; }
-  .empty { padding: 8px 8px 10px; font-size: 12px; color: var(--muted); }
-  .problems { margin: 6px 8px 0; border-top: 1px solid var(--line); padding-top: 2px; }
+  .empty { padding: 6px 8px 8px; font-size: 11.5px; color: var(--muted); }
+  .problems { margin: 5px 6px 0; border-top: 1px solid var(--line); padding-top: 1px; }
   .problems-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 7px 6px 5px;
-    font-size: 11px;
+    padding: 6px 6px 4px;
+    font-size: 10.5px;
     color: var(--muted);
     cursor: pointer;
   }
-  .problem { padding: 3px 6px 5px; font-size: 11px; color: var(--muted); line-height: 1.45; word-break: break-all; }
+  .problem { padding: 2px 6px 4px; font-size: 10.5px; color: var(--muted); line-height: 1.45; word-break: break-all; }
   .problem b { display: block; font-weight: 600; color: var(--sub); }
-  .link { display: inline-block; padding: 4px 6px; font-size: 11px; color: var(--sub); cursor: pointer; border-radius: 4px; }
+  .link { display: inline-block; padding: 3px 6px; font-size: 10.5px; color: var(--sub); cursor: pointer; border-radius: 4px; }
   .link:hover { background: var(--hover); color: var(--text); }
   .footer {
     display: flex;
     justify-content: space-between;
     border-top: 1px solid var(--line);
-    margin-top: 8px;
-    padding: 6px 10px 8px;
+    margin-top: 6px;
+    padding: 5px 8px 6px;
   }
   .footer button {
     border: none;
     background: transparent;
     font: inherit;
-    font-size: 12px;
+    font-size: 11.5px;
     color: var(--sub);
-    padding: 6px 8px;
-    border-radius: 6px;
+    padding: 5px 7px;
+    border-radius: 5px;
     cursor: pointer;
   }
   .footer button:hover { background: var(--hover); color: var(--text); }
@@ -178,17 +200,22 @@
   function agentRow(agent) {
     const classes = ["row"];
     if (!agent.available) classes.push("disabled");
-    const errorButton = agent.hasError
-      ? `<button class="error-btn" data-error="${esc(agent.id)}" title="查看错误">详情</button>`
-      : "";
     const switchClasses = ["switch"];
     if (agent.available && agent.enabled) switchClasses.push("on");
     if (!agent.available) switchClasses.push("disabled");
-    return `<div class="${classes.join(" ")}" data-agent="${esc(agent.id)}">
-      <span class="name">${esc(agent.name)}</span>
-      <span class="${stateClass(agent)}">${esc(agent.state)}</span>
-      ${errorButton}
-      <span class="${switchClasses.join(" ")}"></span>
+    const errorLine = agent.errorText
+      ? `<span class="err" data-error="${esc(agent.id)}" title="${esc(agent.errorText)}">${esc(agent.errorText)}</span>`
+      : "";
+    return `<div class="${classes.join(" ")}" data-agent="${esc(agent.id)}" role="button" tabindex="0">
+      <span class="icon"><img src="${esc(agent.icon)}" alt=""></span>
+      <span class="text">
+        <span class="top">
+          <span class="name">${esc(agent.name)}</span>
+          <span class="${stateClass(agent)}">${esc(agent.state)}</span>
+        </span>
+        ${errorLine}
+      </span>
+      <span class="${switchClasses.join(" ")}" role="switch" aria-checked="${agent.available && agent.enabled}"></span>
     </div>`;
   }
 
@@ -233,6 +260,12 @@
     });
   }
 
+  function toggleRow(row) {
+    if (!row || !view) return;
+    const agent = view.agents.find((item) => item.id === row.getAttribute("data-agent"));
+    if (agent && agent.available) api.toggle(agent.id, !agent.enabled);
+  }
+
   document.getElementById("panel").addEventListener("click", (event) => {
     const target = event.target;
     const actionEl = target.closest("[data-action]");
@@ -252,10 +285,15 @@
       api.showError(errorEl.getAttribute("data-error"));
       return;
     }
-    const row = target.closest("[data-agent]");
-    if (row && view) {
-      const agent = view.agents.find((item) => item.id === row.getAttribute("data-agent"));
-      if (agent && agent.available) api.toggle(agent.id, !agent.enabled);
+    toggleRow(target.closest("[data-agent]"));
+  });
+
+  document.getElementById("panel").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const row = event.target.closest("[data-agent]");
+    if (row) {
+      event.preventDefault();
+      toggleRow(row);
     }
   });
 
@@ -263,7 +301,7 @@
     if (event.key === "Escape") api.close();
   });
   window.addEventListener("contextmenu", (event) => event.preventDefault());
-  // 阴影留白也算「面板外」：点到 12px 透明边就收起
+  // 阴影留白也算「面板外」：点到 10px 透明边就收起
   document.body.addEventListener("click", (event) => {
     const target = event.target;
     if (target === document.body || (target.classList && target.classList.contains("wrap"))) {

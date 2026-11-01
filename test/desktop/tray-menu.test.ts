@@ -71,14 +71,17 @@ describe("tray view", () => {
       enabled: true,
       available: true,
       hasError: false,
+      icon: "../icons/agents/agent-codex.jpg",
     });
     assert.equal(view.agents[1].state, "未安装");
     assert.equal(view.agents[1].available, false);
+    assert.equal(view.agents[1].icon, "../icons/agents/agent-default.svg");
     // 未安装的 lastError 不当作「出错」，不显示详情入口
     assert.equal(view.agents[2].hasError, false);
-    // 装了但启动失败才算「出错」
+    // 装了但启动失败才算「出错」，并带出错误摘要
     assert.equal(view.agents[3].state, "出错");
     assert.equal(view.agents[3].hasError, true);
+    assert.equal(view.agents[3].errorText, "启动失败");
     assert.deepEqual(view.problems, [{ file: "broken.json", reason: "缺少 command" }]);
   });
 
