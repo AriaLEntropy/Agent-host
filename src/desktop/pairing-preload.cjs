@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld("agentbusPairing", {
   regenerate: () => ipcRenderer.send("pairing:regenerate"),
   copy: (text) => ipcRenderer.send("pairing:copy", text),
   testRelay: (relay) => ipcRenderer.invoke("pairing:test-relay", relay),
+  probeRelay: (relay) => ipcRenderer.invoke("pairing:probe-relay", relay),
+  detectRelay: () => ipcRenderer.invoke("pairing:detect-relay"),
   saveRelay: (relay, publicRelayUrl) =>
     ipcRenderer.invoke("pairing:save-relay", { relay, publicRelayUrl }),
   onView: (listener) => {

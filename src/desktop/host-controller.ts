@@ -50,6 +50,12 @@ export type SettingsInfo = {
   manifestProblems: ManifestProblem[];
 };
 
+export type RelayProbeResult = {
+  ok: boolean;
+  url: string;
+  error?: string;
+};
+
 export type PairingStart = {
   link: string;
   expiresAt: number;
@@ -211,6 +217,44 @@ export class HostController {
     };
   }
 
+  /** 单次探测 Relay /health；不保存 */
+  async probeRelay(url: string): Promise<RelayProbeResult> {
+    const normalized = normalizeRelay(url);
+    if (!normalized) return { ok: false, url: normalized, error: "Relay 地址为空" };
+    try {
+      const response = await fetch(`${normalized}/health`, {
+        signal: AbortSignal.timeout(1200),
+      });
+      if (!response.ok) return { ok: false, url: normalized, error: `HTTP ${response.status}` };
+      const body = (await response.json()) as { ok?: unknown };
+      if (body.ok !== true) return { ok: false, url: normalized, error: "health 返回非 ok" };
+      return { ok: true, url: normalized };
+    } catch (error) {
+      return {
+        ok: false,
+        url: normalized,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /** 本机 Relay 自动发现：先看已配置地址，再扫常见端口 */
+  async detectLocalRelay(): Promise<{ ok: boolean; url?: string; error?: string }> {
+    const configured = this.running?.config.relay.trim() ?? "";
+    const candidates = new Set<string>();
+    if (configured && isLocalRelay(configured)) candidates.add(normalizeRelay(configured));
+    for (const port of [8787, 1618, 2862]) {
+      candidates.add(`http://127.0.0.1:${port}`);
+    }
+    const list = [...candidates];
+    const results = await Promise.all(
+      list.map(async (url) => ({ url, result: await this.probeRelay(url) })),
+    );
+    const found = results.find((item) => item.result.ok);
+    if (found) return { ok: true, url: found.url };
+    return { ok: false, error: "本机常见端口上没找到 Relay（8787 / 1618 / 2862）" };
+  }
+
   /** 测试地址是否可达；不保存 */
   async testRelay(relay: string): Promise<{ ok: boolean; error?: string }> {
     const config = this.running?.config ?? (await loadConfig());
@@ -339,4 +383,13 @@ export class HostController {
 
 function normalizeRelay(value: string): string {
   return value.trim().replace(/\/+$/, "");
+}
+
+function isLocalRelay(value: string): boolean {
+  try {
+    const url = new URL(value.includes("://") ? value : `http://${value}`);
+    return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(url.hostname);
+  } catch {
+    return false;
+  }
 }

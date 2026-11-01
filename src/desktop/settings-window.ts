@@ -122,6 +122,14 @@ export class SettingsWindow {
       if (!fromWindow(event) || typeof relay !== "string") return { ok: false, error: "invalid relay" };
       return this.controller.testRelay(relay);
     });
+    ipcMain.handle("settings:probe-relay", async (event, relay: unknown) => {
+      if (!fromWindow(event) || typeof relay !== "string") return { ok: false, error: "invalid relay" };
+      return this.controller.probeRelay(relay);
+    });
+    ipcMain.handle("settings:detect-relay", async (event) => {
+      if (!fromWindow(event)) return { ok: false, error: "window closed" };
+      return this.controller.detectLocalRelay();
+    });
     ipcMain.handle(
       "settings:save-relay",
       async (event, payload: { relay?: unknown; publicRelayUrl?: unknown } | undefined) => {

@@ -197,8 +197,9 @@
       '<input class="fld" id="public" placeholder="留空时沿用上面的 Relay 地址" value="' + esc(publicValue) + '">' +
       '<div class="hint" style="margin:6px 0 0">Relay 在内网、手机需要走公网或域名时才填。</div>';
     document.getElementById("foot").innerHTML =
-      '<span class="sp"></span>' +
       '<button class="btn" id="test">测试连接</button>' +
+      '<button class="btn" id="detect">检测本机 Relay</button>' +
+      '<span class="sp"></span>' +
       '<button class="btn pri" id="save" disabled>保存并继续</button>';
     tested = false;
     document.getElementById("relay").addEventListener("input", () => {
@@ -208,7 +209,39 @@
       document.getElementById("test-error").classList.add("hidden");
     });
     document.getElementById("test").addEventListener("click", testRelay);
+    document.getElementById("detect").addEventListener("click", () => detectRelay(false));
     document.getElementById("save").addEventListener("click", saveRelay);
+    if (!relayValue.trim()) void detectRelay(true);
+    else void probeRelayOnce(relayValue.trim());
+  }
+
+  async function probeRelayOnce(relay) {
+    const result = await api.probeRelay(relay);
+    const ok = document.getElementById("test-ok");
+    if (!ok) return;
+    if (result.ok) {
+      ok.textContent = "Relay 服务可用";
+      ok.classList.remove("hidden");
+    } else {
+      showTestError("Relay 不可达：" + (result.error || "连接失败"));
+    }
+  }
+
+  async function detectRelay(auto) {
+    const button = document.getElementById("detect");
+    if (button) { button.classList.add("busy"); button.textContent = "检测中…"; }
+    const found = await api.detectRelay();
+    if (button) { button.classList.remove("busy"); button.textContent = "检测本机 Relay"; }
+    if (!found.ok) { showTestError(found.error || "未发现本机 Relay"); return; }
+    const relay = document.getElementById("relay");
+    if (relay) relay.value = found.url;
+    if (auto) await testRelay();
+    else {
+      document.getElementById("test-ok").textContent = "发现本机 Relay：" + found.url;
+      document.getElementById("test-ok").classList.remove("hidden");
+      tested = false;
+      document.getElementById("save").disabled = true;
+    }
   }
 
   async function testRelay() {
@@ -229,6 +262,7 @@
     if (result.ok) {
       tested = true;
       document.getElementById("save").disabled = false;
+      document.getElementById("test-ok").textContent = "连接成功";
       document.getElementById("test-ok").classList.remove("hidden");
       document.getElementById("test-error").classList.add("hidden");
     } else {

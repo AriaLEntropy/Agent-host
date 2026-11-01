@@ -160,13 +160,15 @@
       '<div class="s-sub">Relay 地址变更后要先测试成功才保存并重连；失败保持原配置。</div>' +
       '<div class="setrow"><span class="k"><b>连接状态</b></span>' +
         '<span class="top" style="gap:7px;font-size:12px;color:var(--sub)"><span class="dot ' + dotClass() + '"></span>' + esc(stateLabel()) + '</span></div>' +
+      '<div class="setrow"><span class="k"><b>Relay 服务</b><span id="relay-service-text">检测中…</span></span>' +
+        '<span class="dot" id="relay-service-dot"></span></div>' +
       '<div class="setrow"><span class="k"><b>Relay 地址</b><span>' + (view.relayConfigured ? "保存前会去掉尾部 / 并做 normalize" : "手机和电脑都需要能访问这个地址") + '</span></span></div>' +
       '<input class="fld" id="relay" value="' + esc(view.relay) + '" placeholder="http://192.168.1.10:8787">' +
       '<div class="grp">手机可达地址（可选）</div>' +
       '<input class="fld" id="public" value="' + esc(view.publicRelayUrl) + '" placeholder="留空时沿用上面的 Relay 地址">' +
       '<div class="inline-err hidden" id="relay-err">' + alertIcon() + ' <span></span></div>' +
       '<div class="inline-ok hidden" id="relay-ok">连接成功</div>' +
-      '<div class="frow"><button class="btn" id="test">测试连接</button><span class="sp"></span><button class="btn pri" id="save" disabled>保存并重连</button></div>' +
+      '<div class="frow"><button class="btn" id="test">测试连接</button><button class="btn" id="detect">检测本机 Relay</button><span class="sp"></span><button class="btn pri" id="save" disabled>保存并重连</button></div>' +
       '<div class="setrow" style="margin-top:14px"><span class="k"><b>手机配对</b><span>' + (view.paired ? "已配对；重新配对会断开当前手机" : "当前未配对") + '</span></span>' +
         '<button class="btn" id="repair">' + (view.paired ? "重新配对…" : "配对手机…") + '</button></div>' +
       (view.paired ? '<div class="grp">危险操作</div>' +
@@ -241,6 +243,7 @@
     if (active === "通用") body.innerHTML = sectionGeneral();
     if (active === "诊断") body.innerHTML = sectionDiagnostics();
     bind();
+    if (active === "连接") probeConfiguredRelay();
   }
 
   function bind() {
@@ -265,6 +268,8 @@
     });
     const test = document.getElementById("test");
     if (test) test.addEventListener("click", testRelay);
+    const detect = document.getElementById("detect");
+    if (detect) detect.addEventListener("click", () => detectRelay(false));
     const save = document.getElementById("save");
     if (save) save.addEventListener("click", saveRelay);
     const relay = document.getElementById("relay");
@@ -299,6 +304,46 @@
     if (exportBtn) exportBtn.addEventListener("click", exportDiagnostics);
     const copyDiag = document.getElementById("copy-diag");
     if (copyDiag) copyDiag.addEventListener("click", () => api.copyDiagnostics());
+  }
+
+  async function probeConfiguredRelay() {
+    const relay = document.getElementById("relay");
+    if (!relay) return;
+    if (!relay.value.trim()) {
+      await detectRelay(true);
+      return;
+    }
+    setRelayService("检测中…", "");
+    const result = await api.probeRelay(relay.value.trim());
+    if (!document.getElementById("relay-service-text")) return;
+    setRelayService(
+      result.ok ? "可用" : "不可达",
+      result.ok ? "ok" : "bad",
+      result.ok ? "" : result.error,
+    );
+  }
+
+  function setRelayService(text, kind, detail) {
+    const label = document.getElementById("relay-service-text");
+    const dot = document.getElementById("relay-service-dot");
+    if (!label || !dot) return;
+    label.textContent = text + (detail ? " · " + detail : "");
+    dot.className = "dot " + (kind === "ok" ? "connected" : kind === "bad" ? "disconnected" : "");
+  }
+
+  async function detectRelay(auto) {
+    const button = document.getElementById("detect");
+    if (button) { button.classList.add("busy"); button.textContent = "检测中…"; }
+    const found = await api.detectRelay();
+    if (button) { button.classList.remove("busy"); button.textContent = "检测本机 Relay"; }
+    if (!found.ok) {
+      setRelayService("未发现本机 Relay", "bad", found.error);
+      return;
+    }
+    const relay = document.getElementById("relay");
+    if (relay) relay.value = found.url;
+    setRelayService("发现本机 Relay", "ok", found.url);
+    if (auto) await testRelay();
   }
 
   async function testRelay() {

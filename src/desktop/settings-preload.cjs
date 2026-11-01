@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld("agentbusSettings", {
   close: () => ipcRenderer.send("settings:close"),
   onView: (listener) => ipcRenderer.on("settings:view", (_event, view) => listener(view)),
   testRelay: (relay) => ipcRenderer.invoke("settings:test-relay", relay),
+  probeRelay: (relay) => ipcRenderer.invoke("settings:probe-relay", relay),
+  detectRelay: () => ipcRenderer.invoke("settings:detect-relay"),
   saveRelay: (relay, publicRelayUrl) =>
     ipcRenderer.invoke("settings:save-relay", { relay, publicRelayUrl }),
   toggleAgent: (agentId, enabled) =>
