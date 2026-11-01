@@ -110,9 +110,18 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    cursor: pointer;
   }
-  .err:hover { color: var(--text); text-decoration: underline; }
+  .detail {
+    border: none;
+    background: transparent;
+    font: inherit;
+    font-size: 10.5px;
+    color: var(--muted);
+    padding: 0 2px;
+    cursor: pointer;
+    flex: none;
+  }
+  .detail:hover { color: var(--text); text-decoration: underline; }
   .switch {
     position: relative;
     width: 30px;
@@ -198,8 +207,12 @@
   function agentRow(agent) {
     const classes = ["row"];
     if (!agent.available) classes.push("disabled");
+    // 错误摘要只是说明，不做成可点；装了但出错的行另外给「详情」
     const errorLine = agent.errorText
-      ? `<span class="err" data-error="${esc(agent.id)}" title="${esc(agent.errorText)}">${esc(agent.errorText)}</span>`
+      ? `<span class="err">${esc(agent.errorText)}</span>`
+      : "";
+    const detail = agent.hasError
+      ? `<button class="detail" data-error="${esc(agent.id)}">详情</button>`
       : "";
     // 未安装没有可操作项，不画开关；状态自然顶到最右
     const switchHtml = agent.available
@@ -211,6 +224,7 @@
         <span class="top">
           <span class="name">${esc(agent.name)}</span>
           <span class="${stateClass(agent)}">${esc(agent.state)}</span>
+          ${detail}
         </span>
         ${errorLine}
       </span>
