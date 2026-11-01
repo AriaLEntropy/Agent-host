@@ -94,15 +94,17 @@ function agentMenu(status: HostStatus): TrayMenuNode[] {
   return nodes;
 }
 
-/** 状态词只取需求里的四种：已停用 / 未安装 / 出错 / 可用 */
+/** 状态词只取需求里的四种：未安装 / 已停用 / 出错 / 可用 */
 export function agentStateLabel(agent: {
   enabled: boolean;
   available: boolean;
   lastError?: string;
   status?: "ok" | "degraded" | "error";
 }): string {
-  if (!agent.enabled) return "已停用";
+  // 没装就是「未安装」：OpenClaw 默认 enabled=false，但本机没有它，
+  // 先报「已停用」会让用户以为装了只是被关掉
   if (!agent.available) return "未安装";
+  if (!agent.enabled) return "已停用";
   if (agent.lastError || agent.status === "error") return "出错";
   return "可用";
 }

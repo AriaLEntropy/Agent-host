@@ -123,6 +123,8 @@ describe("tray menu", () => {
     assert.equal(agentStateLabel(agent() as any), "可用");
     assert.equal(agentStateLabel(agent({ enabled: false }) as any), "已停用");
     assert.equal(agentStateLabel(agent({ available: false }) as any), "未安装");
+    // OpenClaw 默认关闭：没装时仍报「未安装」，不能显示成只是被停用
+    assert.equal(agentStateLabel(agent({ available: false, enabled: false }) as any), "未安装");
     assert.equal(agentStateLabel(agent({ lastError: "boom" }) as any), "出错");
     assert.equal(agentStateLabel(agent({ status: "error" }) as any), "出错");
   });
