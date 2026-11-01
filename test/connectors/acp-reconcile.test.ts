@@ -167,6 +167,19 @@ function captureEvents() {
   return { events, stop };
 }
 
+/** Windows 上假 agent 可能还在写临时目录，rm 偶发 ENOTEMPTY；重试几次再放弃 */
+async function removeDir(directory: string) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      await rm(directory, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (attempt === 7) throw error;
+      await sleep(50 * (attempt + 1));
+    }
+  }
+}
+
 async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -248,7 +261,7 @@ describe("acp reconcile", { concurrency: false }, () => {
       stop();
     } finally {
       reset();
-      await rm(directory, { recursive: true, force: true });
+      await removeDir(directory);
     }
   });
 
@@ -286,7 +299,7 @@ describe("acp reconcile", { concurrency: false }, () => {
     } finally {
       busHost.releaseLive(liveId);
       reset();
-      await rm(directory, { recursive: true, force: true });
+      await removeDir(directory);
     }
   });
 
@@ -348,7 +361,7 @@ describe("acp reconcile", { concurrency: false }, () => {
       stop();
     } finally {
       reset();
-      await rm(directory, { recursive: true, force: true });
+      await removeDir(directory);
     }
   });
 
@@ -394,7 +407,7 @@ describe("acp reconcile", { concurrency: false }, () => {
       stop();
     } finally {
       reset();
-      await rm(directory, { recursive: true, force: true });
+      await removeDir(directory);
     }
   });
 
@@ -466,7 +479,7 @@ describe("acp reconcile", { concurrency: false }, () => {
       stop();
     } finally {
       reset();
-      await rm(directory, { recursive: true, force: true });
+      await removeDir(directory);
     }
   });
 
@@ -488,7 +501,7 @@ describe("acp reconcile", { concurrency: false }, () => {
       assert.equal(tasks.filter((task) => task.connectorId === "no-list").length, 0);
     } finally {
       reset();
-      await rm(directory, { recursive: true, force: true });
+      await removeDir(directory);
     }
   });
 
@@ -513,7 +526,7 @@ describe("acp reconcile", { concurrency: false }, () => {
       assert.equal(tasks.filter((task) => task.connectorId === "broken-list").length, 0);
     } finally {
       reset();
-      await rm(directory, { recursive: true, force: true });
+      await removeDir(directory);
     }
   });
 
@@ -546,7 +559,7 @@ describe("acp reconcile", { concurrency: false }, () => {
       assert.ok(busStore.taskById("acp:my-agent:s1"));
     } finally {
       reset();
-      await rm(directory, { recursive: true, force: true });
+      await removeDir(directory);
     }
   });
 
@@ -581,7 +594,7 @@ describe("acp reconcile", { concurrency: false }, () => {
       assert.equal(after, before);
     } finally {
       reset();
-      await rm(directory, { recursive: true, force: true });
+      await removeDir(directory);
     }
   });
 
@@ -624,7 +637,7 @@ describe("acp reconcile", { concurrency: false }, () => {
       }
     } finally {
       reset();
-      await rm(directory, { recursive: true, force: true });
+      await removeDir(directory);
     }
   });
 
@@ -655,7 +668,7 @@ describe("acp reconcile", { concurrency: false }, () => {
     } finally {
       delete process.env.AGENT_HOST_CONNECTOR_SETTINGS;
       reset();
-      await rm(directory, { recursive: true, force: true });
+      await removeDir(directory);
     }
   });
 });
