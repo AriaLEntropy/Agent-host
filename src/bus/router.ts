@@ -3,7 +3,7 @@ import { ArtifactError, getArtifact, MAX_UPLOAD_BYTES, putUpload } from "./artif
 import { busStore, HostPlatform } from "./store.js";
 import { PLUGIN_VERSION } from "../tunnel/version.js";
 
-export const PROTOCOL_VERSION = "3.9";
+export const PROTOCOL_VERSION = "3.10";
 export const SNAPSHOT_LONG_POLL_MS = 25_000;
 export { MAX_UPLOAD_BYTES };
 

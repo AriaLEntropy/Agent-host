@@ -116,6 +116,43 @@ export type BusModelOption = {
   defaultEffort?: string;
 };
 
+/** 协议 3.10：技能目录里的一项；ACP 的命令没有正文，hasBody 为 false */
+export type BusSkill = {
+  id: string;
+  name: string;
+  description: string;
+  hint?: string;
+  kind: "skill" | "command";
+  source: "session" | "project" | "user" | "agent";
+  hasBody: boolean;
+};
+
+/** 一次 fetchSkills 的结果；不进快照，只作为事件下发 */
+export type BusSkillList = {
+  commandId: string;
+  agentId: string;
+  connector: string;
+  connectorId?: string;
+  projectPath: string;
+  taskId?: string;
+  revision: string;
+  skills: BusSkill[];
+  truncated: boolean;
+  fetchedAt: string;
+};
+
+/** 一次 readSkill 的结果 */
+export type BusSkillContent = {
+  commandId: string;
+  agentId: string;
+  skillId: string;
+  name: string;
+  contentType: "text/markdown";
+  body: string;
+  truncated: boolean;
+  fetchedAt: string;
+};
+
 /** 协议 `ConnectorKind` 的全集；ACP 用 connectorId 区分具体 agent。 */
 export type ListedAgentKind =
   | "codex"
@@ -140,6 +177,8 @@ export type ListedAgent = {
   canAutoApprove?: boolean;
   /** 协议 3.8：能不能永久删除电脑端会话；只写 true。 */
   canDeleteTasks?: boolean;
+  /** 协议 3.10：能不能从手机查技能目录；只写 true */
+  canListSkills?: boolean;
 };
 
 export type BusProject = {
@@ -159,12 +198,21 @@ export type BusCommandResult = {
 };
 
 export type BusEvent = {
-  kind: "snapshot" | "taskUpdated" | "taskRemoved" | "commandResult" | "taskMessages";
+  kind:
+    | "snapshot"
+    | "taskUpdated"
+    | "taskRemoved"
+    | "commandResult"
+    | "taskMessages"
+    | "skillList"
+    | "skillContent";
   snapshot?: Record<string, unknown>;
   task?: BusTask;
   taskId?: string;
   commandResult?: BusCommandResult;
   taskMessages?: BusTaskMessages;
+  skillList?: BusSkillList;
+  skillContent?: BusSkillContent;
 };
 
 export type HostIdentity = {
@@ -443,6 +491,7 @@ export class TaskStore {
             ...(agent.models?.length ? { models: agent.models } : {}),
             ...(agent.canAutoApprove ? { canAutoApprove: true } : {}),
             ...(agent.canDeleteTasks ? { canDeleteTasks: true } : {}),
+            ...(agent.canListSkills ? { canListSkills: true } : {}),
           })),
           capabilities: {
             remoteControl: false,
@@ -489,6 +538,10 @@ export class TaskStore {
 
   taskById(taskId: string) {
     return this.tasks.find((task) => task.id === taskId);
+  }
+
+  projectByPath(path: string) {
+    return this.projects.find((project) => project.path === path);
   }
 
   rememberProject(project: BusProject) {
@@ -584,6 +637,14 @@ export class TaskStore {
     this.messages.set(taskMessages.taskId, taskMessages);
     this.schedulePersist();
     this.publish({ kind: "taskMessages", taskMessages });
+  }
+
+  emitSkillList(skillList: BusSkillList) {
+    this.publish({ kind: "skillList", skillList });
+  }
+
+  emitSkillContent(skillContent: BusSkillContent) {
+    this.publish({ kind: "skillContent", skillContent });
   }
 
   recordResult(result: BusCommandResult) {

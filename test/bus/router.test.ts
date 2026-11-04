@@ -29,8 +29,8 @@ after(async () => {
   await rm(artifactsDir, { recursive: true, force: true });
 });
 
-test("protocol version is locked to 3.9", () => {
-  assert.equal(PROTOCOL_VERSION, "3.9");
+test("protocol version is locked to 3.10", () => {
+  assert.equal(PROTOCOL_VERSION, "3.10");
 });
 
 function resetBus() {
@@ -55,7 +55,7 @@ describe("bus routes", { concurrency: false }, () => {
     });
     assert.equal(response.status, 200);
     assert.deepEqual(response.body, {
-      protocolVersion: "3.9",
+      protocolVersion: "3.10",
       hostVersion: "1.0.0",
       agentId,
       hostKind: "agent-host",

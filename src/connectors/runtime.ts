@@ -10,6 +10,7 @@ import {
   type BusMessage,
   type BusMessageFileRef,
   type BusModelOption,
+  type BusSkill,
   type BusTask,
   type ListedAgent,
 } from "../bus/store.js";
@@ -84,10 +85,26 @@ import {
   validate as validateFileRef,
 } from "./ported/transcript-file-refs.js";
 import { ConnectorSettings, normalizeProjectPath } from "./settings-store.js";
+import {
+  MAX_SKILLS,
+  commandSkillIdFor,
+  mergeSessionSkills,
+  readSkillBody,
+  revisionFor,
+  scanSkills,
+  supportsSkillCatalog,
+  toBusSkill,
+} from "./skills.js";
 
 // Real agents can take tens of seconds to cold start (Gemini CLI measured
 // 35–42s on Windows), so a 10s ceiling rejects agents that are merely slow.
 export const INITIALIZE_TIMEOUT_MS = 60_000;
+
+/** 测试注入技能目录的 home；生产环境用 os.homedir() */
+let skillsHome: string | undefined;
+export function setSkillsHomeForTests(home: string | undefined) {
+  skillsHome = home;
+}
 export const IDLE_MS = 10 * 60 * 1000;
 const MAX_USER_MESSAGES = 40;
 const MAX_TOOL_MESSAGES = 160;
@@ -1092,6 +1109,7 @@ export function resetRuntime() {
   for (const process of processes.values()) process.kill();
   processes.clear();
   sessions.clear();
+  earlySessionUpdates.clear();
   hiddenRegistryIds.clear();
   connectorModels.clear();
   connectorModelLookup.clear();
@@ -1395,6 +1413,8 @@ export function executeCommand(command: Record<string, unknown>): Promise<BusCom
   if (kind === "interrupt") return interrupt(id, record(command.interrupt)).catch((error) => fail(messageOf(error)));
   if (kind === "fetchMessages") return fetchMessages(id, record(command.fetchMessages)).catch((error) => fail(messageOf(error)));
   if (kind === "fetchFile") return fetchFile(id, record(command.fetchFile)).catch((error) => fail(messageOf(error)));
+  if (kind === "fetchSkills") return fetchSkills(id, record(command.fetchSkills)).catch((error) => fail(messageOf(error)));
+  if (kind === "readSkill") return readSkill(id, record(command.readSkill)).catch((error) => fail(messageOf(error)));
   if (kind === "deleteTask") return deleteTask(id, record(command.deleteTask)).catch((error) => fail(messageOf(error)));
   if (kind === "removeProject") {
     return removeProject(id, record(command.removeProject)).catch((error) => fail(messageOf(error)));
@@ -1494,7 +1514,7 @@ async function startTask(commandId: string, payload: Record<string, unknown>): P
   const task = baseTask(spec, taskId, cwd, prompt.slice(0, 80) || "新任务", now, !hasProject);
   if (requestedModel) task.model = requestedModel;
   if (appliedEffort) task.effort = appliedEffort;
-  sessions.set(taskId, {
+  const session: LiveSession = {
     taskId,
     sessionId,
     cwd,
@@ -1504,7 +1524,8 @@ async function startTask(commandId: string, payload: Record<string, unknown>): P
       status: task.status,
       updatedAt: now,
     }),
-  });
+  };
+  sessions.set(taskId, session);
   busStore.rememberSession(taskId, sessionId, "acp");
   if (hasProject) {
     busStore.rememberProject({
@@ -1516,6 +1537,7 @@ async function startTask(commandId: string, payload: Record<string, unknown>): P
     });
   }
   busStore.upsertTask(task);
+  flushEarlySessionUpdates(session);
   void runPrompt(process, taskId, prompt, imageBlocks).catch((error) =>
     markFailed(taskId, messageOf(error)),
   );
@@ -1857,6 +1879,137 @@ async function fetchMessages(commandId: string, payload: Record<string, unknown>
   }
   await emitSessionMessages(taskId, task.agentId, liveSession);
   return done(commandId, true, undefined, taskId);
+}
+
+type SkillRequestContext = {
+  spec: AgentSpec;
+  connector: string;
+  connectorId?: string;
+  projectPath: string;
+  taskId?: string;
+  session?: LiveSession;
+};
+
+/** 技能查询的公共前置：连接器、项目、任务归属都要在电脑端重新校验 */
+function resolveSkillRequest(
+  payload: Record<string, unknown>,
+): SkillRequestContext | { error: string } {
+  const spec = specForRef(payload.connector, payload.connectorId);
+  if (!spec) return { error: "no connector is available" };
+  const unavailable = specReadyError(spec);
+  if (unavailable) return { error: unavailable };
+
+  const taskId = typeof payload.taskId === "string" ? payload.taskId : "";
+  let projectPath = typeof payload.projectPath === "string" ? payload.projectPath.trim() : "";
+  let session: LiveSession | undefined;
+
+  if (taskId) {
+    const task = busStore.taskById(taskId);
+    if (!task) return { error: "task not found" };
+    if (task.source !== spec.kind) return { error: "task does not belong to this connector" };
+    if (spec.kind === "acp" && task.connectorId !== spec.id) {
+      return { error: "task does not belong to this connector" };
+    }
+    projectPath = task.projectPath;
+    session = sessions.get(taskId);
+  } else if (projectPath && !busStore.projectByPath(projectPath)) {
+    return { error: "project not found" };
+  }
+
+  const connector = spec.kind === "acp" ? "acp" : spec.kind;
+  const connectorId = spec.kind === "acp" ? spec.id : undefined;
+  return {
+    spec,
+    connector,
+    ...(connectorId ? { connectorId } : {}),
+    projectPath,
+    ...(taskId ? { taskId } : {}),
+    ...(session ? { session } : {}),
+  };
+}
+
+/** ACP 的 session 命令：有目录、没有正文 */
+function sessionSkills(spec: AgentSpec, session: LiveSession | undefined): BusSkill[] {
+  if (!session || spec.kind !== "acp") return [];
+  return session.state.commands.map((command) => ({
+    id: commandSkillIdFor(spec.id, command.name),
+    name: command.name,
+    description: command.description,
+    ...(command.hint ? { hint: command.hint } : {}),
+    kind: "command",
+    source: "session",
+    hasBody: false,
+  }));
+}
+
+async function fetchSkills(
+  commandId: string,
+  payload: Record<string, unknown>,
+): Promise<BusCommandResult> {
+  const context = resolveSkillRequest(payload);
+  if ("error" in context) return done(commandId, false, context.error);
+  const catalog = await scanSkills({
+    kind: context.spec.kind,
+    connectorId: context.connectorId,
+    projectPath: context.projectPath,
+    home: skillsHome,
+  });
+  const merged = mergeSessionSkills(
+    sessionSkills(context.spec, context.session),
+    catalog.skills.map(toBusSkill),
+  );
+  const skills = merged.slice(0, MAX_SKILLS);
+  busStore.emitSkillList({
+    commandId,
+    agentId: busStore.agentId(),
+    connector: context.connector,
+    ...(context.connectorId ? { connectorId: context.connectorId } : {}),
+    projectPath: context.projectPath,
+    ...(context.taskId ? { taskId: context.taskId } : {}),
+    revision: revisionFor(skills),
+    skills,
+    truncated: catalog.truncated || merged.length > MAX_SKILLS,
+    fetchedAt: new Date().toISOString(),
+  });
+  return done(commandId, true, undefined, context.taskId);
+}
+
+async function readSkill(
+  commandId: string,
+  payload: Record<string, unknown>,
+): Promise<BusCommandResult> {
+  const context = resolveSkillRequest(payload);
+  if ("error" in context) return done(commandId, false, context.error);
+  const skillId = typeof payload.skillId === "string" ? payload.skillId.trim() : "";
+  if (!skillId) return done(commandId, false, "skillId is missing");
+  // ACP 命令只有目录，没有 SKILL.md 正文；不要假装能读
+  if (sessionSkills(context.spec, context.session).some((skill) => skill.id === skillId)) {
+    return done(commandId, false, "skill content is not available");
+  }
+  const catalog = await scanSkills({
+    kind: context.spec.kind,
+    connectorId: context.connectorId,
+    projectPath: context.projectPath,
+    home: skillsHome,
+  });
+  const skill = catalog.skills.find((item) => item.id === skillId);
+  if (!skill) return done(commandId, false, "skill not found");
+  try {
+    const { body, truncated } = await readSkillBody(skill);
+    busStore.emitSkillContent({
+      commandId,
+      agentId: busStore.agentId(),
+      skillId: skill.id,
+      name: skill.name,
+      contentType: "text/markdown",
+      body,
+      truncated,
+      fetchedAt: new Date().toISOString(),
+    });
+    return done(commandId, true, undefined, context.taskId);
+  } catch (error) {
+    return done(commandId, false, messageOf(error));
+  }
 }
 
 function isOpenCodeTaskId(taskId: string): boolean {
@@ -2629,21 +2782,53 @@ async function ensureProcess(spec: AgentSpec) {
   return process;
 }
 
+/**
+ * `available_commands_update` 常在 `session/new` 返回后立刻到达，而这时
+ * `sessions.set` 还没执行。按 sessionId 缓冲早期 update，登记会话时回放，
+ * 否则技能目录会稳定丢掉第一份列表
+ */
+const earlySessionUpdates = new Map<string, Array<{ update: Record<string, unknown>; at: string }>>();
+const MAX_EARLY_SESSION_UPDATES = 200;
+
+function bufferEarlySessionUpdate(sessionId: string, update: Record<string, unknown>, at: string) {
+  if (!sessionId) return;
+  const pending = earlySessionUpdates.get(sessionId) ?? [];
+  if (pending.length >= MAX_EARLY_SESSION_UPDATES) pending.shift();
+  pending.push({ update, at });
+  earlySessionUpdates.set(sessionId, pending);
+}
+
+function flushEarlySessionUpdates(session: LiveSession) {
+  const pending = earlySessionUpdates.get(session.sessionId);
+  if (!pending) return;
+  earlySessionUpdates.delete(session.sessionId);
+  for (const item of pending) applySessionUpdate(session, item.update, item.at);
+}
+
+function applySessionUpdate(session: LiveSession, raw: Record<string, unknown>, at: string) {
+  const update = parseSessionUpdate(raw);
+  // `session/load` 的历史重放进单独的一份，载入成功才换上去
+  if (session.replay) {
+    session.replay.apply(update, at);
+    return;
+  }
+  const task = busStore.taskById(session.taskId);
+  if (!task) return;
+  if (session.state.apply(update, at)) writeSessionRecord(task, session.state);
+}
+
 function onAgentMessage(spec: AgentSpec, message: Record<string, unknown>) {
   if (message.method === "session/update") {
     const params = record(message.params);
-    const session = sessionByAcpId(typeof params.sessionId === "string" ? params.sessionId : "");
-    if (!session) return;
-    const update = parseSessionUpdate(record(params.update));
+    const sessionId = typeof params.sessionId === "string" ? params.sessionId : "";
+    const raw = record(params.update);
     const now = new Date().toISOString();
-    // `session/load` 的历史重放进单独的一份，载入成功才换上去。
-    if (session.replay) {
-      session.replay.apply(update, now);
+    const session = sessionByAcpId(sessionId);
+    if (!session) {
+      bufferEarlySessionUpdate(sessionId, raw, now);
       return;
     }
-    const task = busStore.taskById(session.taskId);
-    if (!task) return;
-    if (session.state.apply(update, now)) writeSessionRecord(task, session.state);
+    applySessionUpdate(session, raw, now);
     return;
   }
   if (message.method !== "session/request_permission" || typeof message.id !== "number") return;
@@ -2863,6 +3048,14 @@ function listed(agent: AgentSpec): ListedAgent {
     ...(agent.available && supportsAutoApprove(agent.kind) ? { canAutoApprove: true } : {}),
     // 协议 3.8：只有真正实现了永久删除的来源才报。
     ...(agent.available && supportsDeleteTask(agent.kind) ? { canDeleteTasks: true } : {}),
+    // 协议 3.10：只写 true；没有这个字段的手机不会发 fetchSkills
+    ...(agent.available &&
+    supportsSkillCatalog({
+      kind: agent.kind,
+      connectorId: agent.kind === "acp" ? agent.id : undefined,
+    })
+      ? { canListSkills: true }
+      : {}),
   };
 }
 

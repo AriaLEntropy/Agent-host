@@ -1,0 +1,12 @@
+{
+  "id": "9d1f0c2a-6b7e-4a5d-8c31-2f4e6a8b0c1d",
+  "createdAt": "2026-11-03T05:10:00Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "fetchSkills",
+  "fetchSkills": {
+    "connector": "acp",
+    "connectorId": "qwen-code",
+    "projectPath": "/Users/me/Projects/demo",
+    "taskId": "acp:qwen-code:sess_7f3a2c"
+  }
+}

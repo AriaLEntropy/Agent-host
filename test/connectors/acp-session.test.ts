@@ -189,6 +189,39 @@ test("image chunks stay on the transcript entry and image-only prompts are not e
   assert.equal(state.transcript.entries()[0]!.attachments, undefined);
 });
 
+test("available commands are a full replacement and do not touch task fields", () => {
+  const state = new AcpSessionState(record());
+  assert.equal(
+    state.apply(
+      parseSessionUpdate({
+        sessionUpdate: "available_commands_update",
+        availableCommands: [
+          { name: "release", description: "release notes" },
+          { name: "review", description: "review code" },
+        ],
+      }),
+      "t1",
+    ),
+    false,
+  );
+  assert.deepEqual(state.commands.map((command) => command.name), ["release", "review"]);
+
+  state.apply(
+    parseSessionUpdate({
+      sessionUpdate: "available_commands_update",
+      availableCommands: [{ name: "release", description: "release notes v2" }],
+    }),
+    "t2",
+  );
+  assert.deepEqual(state.commands.map((command) => command.description), ["release notes v2"]);
+
+  state.apply(
+    parseSessionUpdate({ sessionUpdate: "available_commands_update", availableCommands: [] }),
+    "t3",
+  );
+  assert.deepEqual(state.commands, []);
+});
+
 test("a title set from the first prompt is not replaced by a later prompt", () => {
   const state = new AcpSessionState(record({ title: "demo", projectName: "demo" }));
   state.beginTurn("first prompt", "t1");

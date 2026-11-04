@@ -1,0 +1,12 @@
+{
+  "id": "bad-read-skill-1",
+  "createdAt": "2026-11-03T05:10:02Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "readSkill",
+  "readSkill": {
+    "connector": "acp",
+    "connectorId": "qwen-code",
+    "projectPath": "/Users/me/Projects/demo",
+    "taskId": "acp:qwen-code:sess_7f3a2c"
+  }
+}

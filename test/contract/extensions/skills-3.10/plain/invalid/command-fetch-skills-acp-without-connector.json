@@ -1,0 +1,10 @@
+{
+  "id": "bad-fetch-skills-2",
+  "createdAt": "2026-11-03T05:10:00Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "fetchSkills",
+  "fetchSkills": {
+    "connector": "acp",
+    "projectPath": "/Users/me/Projects/demo"
+  }
+}

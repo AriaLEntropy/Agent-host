@@ -18,6 +18,7 @@ import {
   stopStatus,
   toolCallDetail,
   truncate,
+  type AcpCommand,
   type AcpPermissionRequest,
   type AcpSessionUpdate,
   type AcpStopReason,
@@ -47,6 +48,8 @@ export type PendingPermission = { rpcId: number; request: AcpPermissionRequest }
 export class AcpSessionState {
   readonly transcript = new AcpTranscript();
   readonly record: AcpSessionRecord;
+  /** ACP 报给手机的命令目录；整份替换，不参与任务字段指纹 */
+  commands: AcpCommand[] = [];
   running = false;
   pending?: PendingPermission;
   /** 这一轮收到的全部回复文字，轮次收尾时写进 `lastMessage`。 */
@@ -119,6 +122,10 @@ export class AcpSessionState {
         this.titleLocked = true;
         break;
       }
+      case "availableCommands":
+        // ACP 的约定是整份替换（空数组表示清空），顺序保留
+        this.commands = update.commands;
+        break;
       case "thought":
       case "other":
         break;

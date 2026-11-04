@@ -63,6 +63,13 @@ export type AcpPermissionRequest = {
   options: AcpPermissionOption[];
 };
 
+/** `available_commands_update` 里的一项；ACP 只给名称、描述和输入提示 */
+export type AcpCommand = {
+  name: string;
+  description: string;
+  hint?: string;
+};
+
 export type AcpSessionUpdate =
   | { kind: "userMessage"; text: string; images: AcpImage[] }
   | { kind: "agentMessage"; text: string; images: AcpImage[] }
@@ -70,6 +77,7 @@ export type AcpSessionUpdate =
   | { kind: "toolCall"; call: AcpToolCall }
   | { kind: "toolCallUpdate"; call: AcpToolCall }
   | { kind: "sessionInfo"; title?: string }
+  | { kind: "availableCommands"; commands: AcpCommand[] }
   | { kind: "other"; type: string };
 
 /** `session/update` 里 BotBus 关心的几种；认不出的返回 `other`。 */
@@ -99,9 +107,34 @@ export function parseSessionUpdate(update: Record<string, unknown>): AcpSessionU
         kind: "sessionInfo",
         ...(typeof update.title === "string" ? { title: update.title } : {}),
       };
+    case "available_commands_update":
+      return { kind: "availableCommands", commands: parseAvailableCommands(update.availableCommands) };
     default:
       return { kind: "other", type };
   }
+}
+
+/** ACP 的 availableCommands：整份替换、保序；坏条目跳过，不拖垮整条更新 */
+export function parseAvailableCommands(value: unknown): AcpCommand[] {
+  if (!Array.isArray(value)) return [];
+  const commands: AcpCommand[] = [];
+  for (const item of value) {
+    if (commands.length >= 100) break;
+    const json = record(item);
+    const name = typeof json.name === "string" ? json.name.trim().replace(/^\/+/, "") : "";
+    if (!name || /\s/.test(name)) continue;
+    const input = record(json.input);
+    const hint = typeof input.hint === "string" ? singleLine(input.hint) : "";
+    commands.push({
+      name: truncate(name, 64),
+      description: truncate(
+        singleLine(typeof json.description === "string" ? json.description : ""),
+        1024,
+      ),
+      ...(hint ? { hint: truncate(hint, 200) } : {}),
+    });
+  }
+  return commands;
 }
 
 export function parseToolCall(value: unknown): AcpToolCall | undefined {

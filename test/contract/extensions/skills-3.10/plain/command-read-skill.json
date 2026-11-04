@@ -1,0 +1,13 @@
+{
+  "id": "4c8a1e6f-2d3b-4a9c-8e7f-1b0d2c3a4e5f",
+  "createdAt": "2026-11-03T05:10:02Z",
+  "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+  "kind": "readSkill",
+  "readSkill": {
+    "connector": "acp",
+    "connectorId": "qwen-code",
+    "projectPath": "/Users/me/Projects/demo",
+    "taskId": "acp:qwen-code:sess_7f3a2c",
+    "skillId": "sk_7f3a2c1d9e8b6a4c0d2f1a"
+  }
+}

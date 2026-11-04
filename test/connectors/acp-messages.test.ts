@@ -4,6 +4,7 @@ import {
   allowOptions,
   mergeToolCall,
   optionIdFor,
+  parseAvailableCommands,
   parsePermissionOptions,
   parsePermissionRequest,
   parseSessionUpdate,
@@ -51,6 +52,26 @@ test("session updates parse text, tool calls and unknown types without throwing"
   });
   assert.equal(tool.kind, "toolCall");
   assert.equal(tool.kind === "toolCall" ? tool.call.rawInput : "", '{"command":"npm test"}');
+});
+
+test("available_commands_update becomes a command list and skips bad items", () => {
+  const parsed = parseSessionUpdate({
+    sessionUpdate: "available_commands_update",
+    availableCommands: [
+      { name: "/release", description: " Write release notes ", input: { hint: " version " } },
+      { name: "bad name", description: "skipped" },
+      { name: "", description: "skipped" },
+      { name: "review", description: 42 },
+    ],
+  });
+  assert.deepEqual(parsed, {
+    kind: "availableCommands",
+    commands: [
+      { name: "release", description: "Write release notes", hint: "version" },
+      { name: "review", description: "" },
+    ],
+  });
+  assert.deepEqual(parseAvailableCommands(undefined), []);
 });
 
 test("a tool call keeps rawInput when an update only carries explanation text", () => {

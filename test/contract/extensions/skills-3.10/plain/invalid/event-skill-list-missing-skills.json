@@ -1,0 +1,13 @@
+{
+  "kind": "skillList",
+  "skillList": {
+    "commandId": "9d1f0c2a-6b7e-4a5d-8c31-2f4e6a8b0c1d",
+    "agentId": "hV3nQ7pLxK2mR8sTfW4bZQ",
+    "connector": "acp",
+    "connectorId": "qwen-code",
+    "projectPath": "/Users/me/Projects/demo",
+    "revision": "9b2f4c6d8e0a1b3c",
+    "truncated": false,
+    "fetchedAt": "2026-11-03T05:10:01Z"
+  }
+}
