@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { platformPath } from "../platform/path.js";
 import { PLUGIN_VERSION } from "../tunnel/version.js";
+import { notifyForTaskChange } from "./notify.js";
 import { saveBusState, type PersistedBusState, type PersistedSession } from "./persistence.js";
 import { ProjectDismissals } from "./project-dismissals.js";
 import { normalizeProjectPath } from "./project-path.js";
@@ -197,6 +198,22 @@ export type BusCommandResult = {
   finishedAt: string;
 };
 
+/**
+ * 协议「七、通知」的 Notify。
+ *
+ * `requestId` 只在 `TASK_APPROVAL` 必填（Relay 会核对信封外那一份），
+ * `agentName` 是 3.0 起发通知的电脑名——Relay 读不到密文里的内容，只有这一份
+ * 由电脑在密封前填上。
+ */
+export type BusNotify = {
+  taskId: string;
+  category: "TASK_APPROVAL" | "TASK_INPUT" | "TASK_DONE" | "TASK_FAILED";
+  title: string;
+  body: string;
+  requestId?: string;
+  agentName?: string;
+};
+
 export type BusEvent = {
   kind:
     | "snapshot"
@@ -204,6 +221,7 @@ export type BusEvent = {
     | "taskRemoved"
     | "commandResult"
     | "taskMessages"
+    | "notify"
     | "skillList"
     | "skillContent";
   snapshot?: Record<string, unknown>;
@@ -211,6 +229,7 @@ export type BusEvent = {
   taskId?: string;
   commandResult?: BusCommandResult;
   taskMessages?: BusTaskMessages;
+  notify?: BusNotify;
   skillList?: BusSkillList;
   skillContent?: BusSkillContent;
 };
@@ -562,6 +581,7 @@ export class TaskStore {
    */
   upsertTask(task: BusTask, publish = true) {
     const stamped = this.stampWorktree(task);
+    const previous = this.tasks.find((item) => item.id === stamped.id);
     const rest = this.tasks.filter((item) => item.id !== stamped.id);
     this.tasks = [stamped, ...rest]
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
@@ -572,7 +592,10 @@ export class TaskStore {
     const restored = dismissals.reconcile([stamped]);
     if (restored) dismissals.save();
     this.schedulePersist();
-    if (publish && !dismissals.hides(stamped)) this.publish({ kind: "taskUpdated", task: stamped });
+    if (publish && !dismissals.hides(stamped)) {
+      this.publish({ kind: "taskUpdated", task: stamped });
+      this.notifyForChange(previous, stamped);
+    }
     // 恢复是可见性变化：即使这次 upsert 处于静默基线（publish=false），也要
     // 补一份全量快照，让被移出的项目与任务重新出现（对齐上游事件）。
     if (restored) this.publish({ kind: "snapshot" });
@@ -581,6 +604,17 @@ export class TaskStore {
     } catch {
       // 观察者（会话存档）失败不能影响任务写入。
     }
+  }
+
+  /**
+   * 判定并下发这一条任务变化对应的 `notify`。
+   *
+   * 只在真的发了 `taskUpdated` 的路径上判定：静默基线（ACP 对账的第一次列表、
+   * watch 扫到的历史会话）不该被当成变化，一次冒出几十条通知就是轰炸
+   */
+  private notifyForChange(previous: BusTask | undefined, next: BusTask) {
+    const notify = notifyForTaskChange(previous, next, this.identity.hostName);
+    if (notify) this.publish({ kind: "notify", notify });
   }
 
   /**
@@ -681,7 +715,9 @@ export class TaskStore {
   }
 
   private publish(event: BusEvent) {
-    this.seq += 1;
+    // 协议「Event 一览」：`notify` 不改 Snapshot、也不递增 seq，其余各种都推进快照版本。
+    // 跟着涨 seq 会让重连的客户端以为自己漏了快照，为一条通知去重拉全量。
+    if (event.kind !== "notify") this.seq += 1;
     if (event.kind === "snapshot") event.snapshot = this.snapshot();
     for (const listener of this.listeners) listener(event);
     for (const wake of this.waiters) wake();
