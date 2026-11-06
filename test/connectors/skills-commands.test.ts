@@ -153,6 +153,104 @@ describe("fetchSkills / readSkill", () => {
     assert.equal(stale.error, "skill not found");
   });
 
+  test("an unknown connector is refused before any scan", async () => {
+    const result = await executeCommand({
+      id: "cmd-no-connector",
+      kind: "fetchSkills",
+      fetchSkills: { connector: "codex", projectPath: project },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "no connector is available");
+  });
+
+  test("a connector that is present but not ready reports its own reason", async () => {
+    useAgents([{ ...specFor("claude"), available: false }], true);
+    const result = await executeCommand({
+      id: "cmd-not-ready",
+      kind: "fetchSkills",
+      fetchSkills: { connector: "claude", projectPath: project },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "claude connector is not available");
+  });
+
+  test("a task id that is not in the store is refused", async () => {
+    const result = await executeCommand({
+      id: "cmd-task-missing",
+      kind: "fetchSkills",
+      fetchSkills: { connector: "claude", projectPath: project, taskId: "claude:none" },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "task not found");
+  });
+
+  test("a task from another connector is refused", async () => {
+    busStore.upsertTask({
+      id: "codex:thread-9",
+      agentId,
+      source: "codex",
+      title: "别的连接器",
+      projectPath: project,
+      projectName: "project",
+      status: "completed",
+      origin: "desktop",
+      controllable: true,
+      startedAt: "2026-11-03T00:00:00Z",
+      updatedAt: "2026-11-03T00:00:01Z",
+    });
+    const result = await executeCommand({
+      id: "cmd-task-source",
+      kind: "fetchSkills",
+      fetchSkills: { connector: "claude", projectPath: project, taskId: "codex:thread-9" },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "task does not belong to this connector");
+  });
+
+  test("an acp task with a different connectorId is refused", async () => {
+    useAgents([specFor("acp", "qwen-code")], true);
+    busStore.upsertTask({
+      id: "acp:other:sess-9",
+      agentId,
+      source: "acp",
+      connectorId: "other",
+      title: "另一个 acp",
+      projectPath: project,
+      projectName: "project",
+      status: "completed",
+      origin: "desktop",
+      controllable: true,
+      startedAt: "2026-11-03T00:00:00Z",
+      updatedAt: "2026-11-03T00:00:01Z",
+    });
+    const result = await executeCommand({
+      id: "cmd-acp-id",
+      kind: "readSkill",
+      readSkill: {
+        connector: "acp",
+        connectorId: "qwen-code",
+        projectPath: project,
+        taskId: "acp:other:sess-9",
+        skillId: "ac_whatever",
+      },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "task does not belong to this connector");
+  });
+
+  test("a readSkill without a skillId is refused", async () => {
+    const result = await executeCommand({
+      id: "cmd-no-skill-id",
+      kind: "readSkill",
+      readSkill: { connector: "claude", projectPath: project },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "skillId is missing");
+  });
+
+  // 剩下的两条要靠真 ACP 会话（sessionSkills 只在有 LiveSession 时非空），
+  // 运行时没有注入会话的测试钩子，所以「会话级技能没有正文」这条只能在端到端里覆盖
+
   test("a connector without a skill catalog does not advertise canListSkills", async () => {
     useAgents([specFor("hermes")], true);
     const connector = (busStore.snapshot().agents as Array<Record<string, unknown>>)[0]
