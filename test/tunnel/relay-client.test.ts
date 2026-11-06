@@ -131,6 +131,65 @@ test("dsh status follows the probe instead of being hard-coded online", async ()
   }
 });
 
+test("a dsh request is refused with 503 dsh_offline before the port is touched", async () => {
+  let connects = 0;
+  const client = new RelayClient(config(1), {
+    probeDsh: async () => {
+      connects += 1;
+      return false;
+    },
+  });
+  const inner: Array<Record<string, unknown>> = [];
+  const internals = client as unknown as {
+    checkHealth: () => Promise<void>;
+    http: (sessionId: string, msg: Record<string, unknown>) => void;
+    sendInner: (sessionId: string, type: string, payload: Record<string, unknown>, channel: string) => void;
+  };
+  try {
+    await internals.checkHealth();
+    internals.sendInner = (_sessionId, type, payload) => inner.push({ type, payload });
+    internals.http("sess-1", {
+      channel: "ch-1",
+      payload: { method: "GET", path: "/api/sessions" },
+    });
+
+    assert.equal(connects, 1, "the refusal is the probe result, not another probe");
+    assert.equal(inner.length, 1);
+    assert.equal(inner[0].type, "http_res");
+    const payload = inner[0].payload as Record<string, unknown>;
+    assert.equal(payload.status, 503);
+    assert.equal(JSON.parse(Buffer.from(String(payload.bodyB64), "base64").toString("utf8")).reason, "dsh_offline");
+  } finally {
+    client.stop();
+  }
+});
+
+test("a port that died after a healthy probe still reports 502 unreachable", async () => {
+  const client = new RelayClient(config(1), { probeDsh: async () => true });
+  const inner: Array<Record<string, unknown>> = [];
+  const internals = client as unknown as {
+    checkHealth: () => Promise<void>;
+    http: (sessionId: string, msg: Record<string, unknown>) => void;
+    sendInner: (sessionId: string, type: string, payload: Record<string, unknown>, channel: string) => void;
+  };
+  try {
+    await internals.checkHealth();
+    internals.sendInner = (_sessionId, type, payload) => inner.push({ type, payload });
+    // dshPort 1 是保留端口，连不上：健康位在线却在这一次请求里失败，走的是另一条支路
+    internals.http("sess-1", { channel: "ch-1", payload: { method: "GET", path: "/api/sessions" } });
+
+    for (let waited = 0; waited < 40 && inner.length === 0; waited += 1) {
+      await delay(50);
+    }
+    assert.equal(inner.length, 1);
+    const payload = inner[0].payload as Record<string, unknown>;
+    assert.equal(payload.status, 502);
+    assert.equal(JSON.parse(Buffer.from(String(payload.bodyB64), "base64").toString("utf8")).reason, "dsh_unreachable");
+  } finally {
+    client.stop();
+  }
+});
+
 test("a throwing probe never reports the DSH web as online", async () => {
   const client = new RelayClient(config(1), {
     probeDsh: async () => {

@@ -610,6 +610,23 @@ export class RelayClient {
     const body = Buffer.from(msg.payload.bodyB64 ?? "", "base64");
     if (body.length > MAX_HTTP_REQUEST_BYTES)
       throw new E2eeError("request too large");
+    // FR-14.4.5：没检测到或已经断开时不去连本机，直接回 503 `dsh_offline`。
+    // 手机据此从 DSH 完整视图退回通用详情页，靠的是这条而不是那次注定失败的连接。
+    if (!this.health) {
+      this.sendInner(
+        sessionId,
+        "http_res",
+        {
+          status: 503,
+          headers: { "content-type": "application/json" },
+          bodyB64: Buffer.from(JSON.stringify({ reason: "dsh_offline" })).toString("base64"),
+          seq: 0,
+          final: true,
+        },
+        channel,
+      );
+      return;
+    }
     const headers = this.upstreamHeaders(msg.payload.headers ?? {});
     delete headers["content-length"];
     const req = http.request(
@@ -685,6 +702,7 @@ export class RelayClient {
     );
     this.localRequests.set(key, { sessionId, request: req, responseBytes: 0 });
     req.on("error", () => {
+      // 健康位说在线却在这次请求里失败（刚关掉 dsh web）：保留 502 说明是真的连不上
       if (!this.localRequests.delete(key)) return;
       this.sendInner(
         sessionId,
