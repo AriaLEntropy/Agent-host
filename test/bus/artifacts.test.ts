@@ -1,14 +1,25 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { lstat, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  lstat,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import {
   ARTIFACT_TTL_MS,
   ArtifactError,
   MAX_UPLOAD_BYTES,
+  TEMP_FILE_MAX_AGE_MS,
   cleanup,
+  cleanupTempFiles,
   getArtifact,
   putArtifact,
   putUpload,
@@ -97,14 +108,20 @@ test("putArtifact stores PDF / video files but still rejects non-media types", a
   assert.equal(await resolveAttachment({ artifactId: pdfId }), null);
 });
 
+/** 真 png 魔数打头、填到指定长度：测大小边界时不能因为字节头被认成假图先拒掉 */
+function pngSized(bytes: number): Buffer {
+  return Buffer.concat([PNG, Buffer.alloc(bytes - PNG.length)]);
+}
+
 test("the 2 MiB limit is inclusive and larger uploads are rejected", async () => {
   const ok = artifactId("size-ok");
-  await putUpload(ok, Buffer.alloc(MAX_UPLOAD_BYTES), "image/png");
+  await putUpload(ok, pngSized(MAX_UPLOAD_BYTES), "image/png");
   assert.equal((await getArtifact(ok))?.size, MAX_UPLOAD_BYTES);
 
+  // 大小在字节头之前把守，所以超长的那份报的是 too_large 而不是 unsupported_type
   const tooBig = artifactId("size-big");
   await assert.rejects(
-    putUpload(tooBig, Buffer.alloc(MAX_UPLOAD_BYTES + 1), "image/png"),
+    putUpload(tooBig, pngSized(MAX_UPLOAD_BYTES + 1), "image/png"),
     (error: unknown) => error instanceof ArtifactError && error.code === "too_large",
   );
   assert.equal(await getArtifact(tooBig), null);
@@ -214,4 +231,81 @@ test("metadata files are ordinary files, not followed symlinks", async () => {
   const info = await lstat(join(dir, `${id}.json`));
   assert.equal(info.isFile(), true);
   assert.equal(info.isSymbolicLink(), false);
+});
+
+test("a text body that claims to be a png never reaches the cache", async () => {
+  const id = artifactId("prose-png");
+  await assert.rejects(
+    () => putUpload(id, Buffer.from("this is prose, not a picture"), "image/png"),
+    (error: unknown) => error instanceof ArtifactError && error.code === "unsupported_type",
+  );
+  assert.equal(await getArtifact(id), null);
+  // 连半份文件都不该留下：失败路径不该在缓存目录里留垃圾
+  assert.equal((await readdir(dir)).filter((name) => name.includes(id)).length, 0);
+});
+
+test("an empty upload is rejected instead of stored as a zero-byte artifact", async () => {
+  const id = artifactId("empty-png");
+  await assert.rejects(
+    () => putUpload(id, Buffer.alloc(0), "image/png"),
+    (error: unknown) => error instanceof ArtifactError && error.code === "unsupported_type",
+  );
+  assert.equal(await getArtifact(id), null);
+});
+
+test("all four image magics pass the sniff", async () => {
+  const cases: [string, Buffer][] = [
+    ["image/png", Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1])],
+    ["image/jpeg", Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1])],
+    ["image/gif", Buffer.from("GIF89a", "latin1")],
+    ["image/webp", Buffer.concat([Buffer.from("RIFF", "latin1"), Buffer.alloc(4), Buffer.from("WEBPVP8 ", "latin1")])],
+  ];
+  for (const [index, [type, bytes]] of cases.entries()) {
+    const id = artifactId(`magic-${index}`);
+    await putUpload(id, bytes, type);
+    assert.equal((await getArtifact(id))?.contentType, type);
+  }
+});
+
+test("a mismatch between the four image types is tolerated on purpose", async () => {
+  // png 的字节头、声明成 jpeg：照样收。编码器与声明偶尔对不上，拒掉是用户可见的回归，
+  // 而「是不是图片」才是这里把关的东西
+  const id = artifactId("png-called-jpeg");
+  await putUpload(id, PNG, "image/jpeg");
+  assert.equal((await getArtifact(id))?.contentType, "image/jpeg");
+});
+
+test("an orphaned temp file is swept once it is clearly abandoned", async () => {
+  const id = artifactId("crashed-write");
+  const stale = join(dir, `${id}.${process.pid}-${randomUUID()}.tmp`);
+  const fresh = join(dir, `${artifactId("still-writing")}.${process.pid}-${randomUUID()}.tmp`);
+  const notOurs = join(dir, `${id}.tmp`);
+  await Promise.all([writeFile(stale, "half a picture"), writeFile(fresh, "half a picture"), writeFile(notOurs, "x")]);
+  const hourAgo = new Date(Date.now() - TEMP_FILE_MAX_AGE_MS - 60_000);
+  await utimes(stale, hourAgo, hourAgo);
+
+  const names = await readdir(dir);
+  assert.equal(await cleanupTempFiles(dir, new Date()), 1);
+  const after = await readdir(dir);
+  assert.equal(after.includes(basename(stale)), false);
+  // 一小时内的中间文件可能还在写，别动；名字不合我们写法的那份也不动
+  assert.equal(after.includes(basename(fresh)), true);
+  assert.equal(after.includes(basename(notOurs)), true);
+});
+
+test("cleanup sweeps temp files in the same pass and still counts only artifacts", async () => {
+  const expired = artifactId("expired-artifact");
+  await putUpload(expired, PNG, "image/png", day(-8));
+  const orphan = join(dir, `${artifactId("half")}.${process.pid}-${randomUUID()}.tmp`);
+  await writeFile(orphan, "x");
+  await utimes(orphan, new Date(Date.now() - TEMP_FILE_MAX_AGE_MS - 60_000), new Date(Date.now() - TEMP_FILE_MAX_AGE_MS - 60_000));
+
+  assert.equal(await cleanup(), 1);
+  assert.equal((await readdir(dir)).filter((name) => name.endsWith(".tmp")).length, 0);
+});
+
+test("sweeping an unreadable cache directory is a no-op, not a crash", async () => {
+  setArtifactsDir(join(dir, "never-created"));
+  assert.equal(await cleanupTempFiles(join(dir, "never-created")), 0);
+  assert.equal(await cleanup(), 0);
 });

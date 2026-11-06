@@ -243,7 +243,7 @@ describe("bus routes", { concurrency: false }, () => {
   test("expired artifacts are 404 through the router", async () => {
     resetBus();
     const id = "D".repeat(22);
-    await putUpload(id, Buffer.from([1, 2, 3]), "image/png", new Date(Date.now() - ARTIFACT_TTL_MS - 1000));
+    await putUpload(id, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), "image/png", new Date(Date.now() - ARTIFACT_TTL_MS - 1000));
     const got = await routeBus({ method: "GET", path: `/bus/artifacts/${id}`, agentId });
     assert.equal(got.status, 404);
     assert.deepEqual(got.body, { error: "not_found" });

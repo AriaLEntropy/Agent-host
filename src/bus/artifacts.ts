@@ -33,6 +33,12 @@ export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
 export const MAX_ARTIFACT_BYTES = 10 * 1024 * 1024;
 /** 产物保留 7 天，与 Relay 的 `ARTIFACT_TTL_MS` 对齐。 */
 export const ARTIFACT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * 中间 `.tmp` 文件的容忍年龄：一次 PUT 正常在几秒内 rename 完，留在盘上的
+ * 是崩在半路（进程被杀、磁盘满）的孤儿。比产物本身短得多，否则缓存目录会
+ * 只涨不消。
+ */
+export const TEMP_FILE_MAX_AGE_MS = 60 * 60 * 1000;
 /** 协议：Agent 生成的 22 字符 base64url（16 随机字节）。 */
 export const ARTIFACT_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
 
@@ -55,6 +61,38 @@ export function isAllowedArtifactType(value: string): boolean {
     value.startsWith("image/") ||
     value.startsWith("video/")
   );
+}
+
+/**
+ * 按字节头认图片类型；认不出返回 null。
+ *
+ * 手机上传的 `Content-Type` 是客户端自己写的，只按声明收等于让一个自称
+ * `image/png` 的文本进缓存，等到连接器真去读图时才炸——那时已经说不清是谁的问题。
+ * 所以上传要先过这一道；返回哪种图片只用于「是不是图片」，不与声明逐一对齐。
+ */
+export function sniffUploadType(bytes: Buffer): string | null {
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 &&
+    bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (bytes.length >= 6) {
+    const magic = bytes.subarray(0, 6).toString("latin1");
+    if (magic === "GIF89a" || magic === "GIF87a") return "image/gif";
+  }
+  if (
+    bytes.length >= 12 &&
+    bytes.subarray(0, 4).toString("latin1") === "RIFF" &&
+    bytes.subarray(8, 12).toString("latin1") === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  return null;
 }
 
 export type ArtifactErrorCode = "invalid_id" | "too_large" | "unsupported_type";
@@ -227,6 +265,10 @@ export async function putUpload(
   if (bytes.length > MAX_UPLOAD_BYTES) throw new ArtifactError("too_large");
   const mediaType = normalizeContentType(contentType);
   if (!ALLOWED_UPLOAD_TYPES.has(mediaType)) throw new ArtifactError("unsupported_type");
+  // 声明在这四项里还不够，字节头也得真是图片：自称 `image/png` 的文本进了缓存，
+  // 要等连接器读图才炸，那时已经说不清是谁的问题。空字节同样拒，以前能写出一个 0 字节产物。
+  // 四种图片之间不再核对具体格式——编码器与声明偶尔对不上，拒掉是用户可见的回归
+  if (sniffUploadType(bytes) === null) throw new ArtifactError("unsupported_type");
   return writeArtifact(artifactId, bytes, mediaType, now);
 }
 
@@ -317,8 +359,48 @@ export async function cleanup(now: Date = new Date()): Promise<number> {
     }
   }
 
+  await cleanupTempFiles(root, now);
+
   return removed;
 }
+
+/**
+ * 清掉写一半就断掉的中间 `.tmp`；`cleanup` 每轮都会带上它。
+ *
+ * 单独导出是为了测试和手动触发。只碰这个目录里的普通文件：软链接、目录，
+ * 以及名字里带 `.tmp` 但不是 `<id>.<pid>-<uuid>.tmp` 形状的东西都不删——
+ * 宁可留一个孤儿文件，也不要顺着别人的文件名删到别处。
+ */
+export async function cleanupTempFiles(
+  root: string = resolve(artifactsDir()),
+  now: Date = new Date(),
+): Promise<number> {
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  const oldestAllowed = now.getTime() - TEMP_FILE_MAX_AGE_MS;
+  let removed = 0;
+  for (const entry of entries) {
+    if (!entry.isFile() || !TEMP_FILE_NAME_PATTERN.test(entry.name)) continue;
+    const path = join(root, entry.name);
+    try {
+      const info = await lstat(path);
+      if (!info.isFile() || info.isSymbolicLink() || info.mtimeMs > oldestAllowed) continue;
+      await unlink(path);
+      removed += 1;
+    } catch {
+      // 并发清理或文件已消失；幂等。
+    }
+  }
+  return removed;
+}
+
+/** `writeArtifact` 用的中间文件名：`<22 位 id>.<pid>-<uuid>.tmp` */
+const TEMP_FILE_NAME_PATTERN =
+  /^[A-Za-z0-9_-]{22}\.\d+-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.tmp$/;
 
 /**
  * 给连接器解析手机发来的附件：按 artifactId 查本机缓存，返回可读路径与

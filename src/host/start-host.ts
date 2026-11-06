@@ -1,4 +1,8 @@
 import { join } from "node:path";
+import {
+  startArtifactMaintenance,
+  stopArtifactMaintenance,
+} from "../bus/artifact-maintenance.js";
 import { loadCommandLog, setCommandLogPath } from "../bus/commands.js";
 import { loadBusState } from "../bus/persistence.js";
 import { busStore, hostPlatform } from "../bus/store.js";
@@ -103,6 +107,8 @@ export async function startHost(options: StartHostOptions = {}): Promise<Started
   await client.start();
   // 清单增删改后自动重新发现 agent；失败只记日志，不影响隧道
   await startConnectorWatcher();
+  // 产物 7 天保留期要有真的执行者，否则磁盘只涨不消
+  startArtifactMaintenance();
   return { config, client, stop: makeStop(client) };
 }
 
@@ -112,6 +118,7 @@ function makeStop(client: RelayClient | undefined): () => Promise<void> {
     if (stopping) return;
     stopping = true;
     try {
+      stopArtifactMaintenance();
       stopConnectorWatcher();
       await flushConnectorSettings();
       await busStore.flushPersistence();
