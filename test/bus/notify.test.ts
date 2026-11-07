@@ -122,6 +122,46 @@ describe("notifyForTaskChange", () => {
     );
   });
 
+  test("a finished task hands over one sentence, not the whole reply", () => {
+    const reply = "价格表已经加好了。LessonPlayer 的三处文案也顺手改了，都在这次的 diff 里。";
+    const notify = notifyForTaskChange(task(), task({ status: "completed", lastMessage: reply }), "工作台");
+
+    // 通知里只能放两三行，取第一句比从中间砍一刀更像人话
+    assert.equal(notify?.body, "价格表已经加好了");
+  });
+
+  test("an error line with no sentence break is still cut to the limit", () => {
+    const notify = notifyForTaskChange(
+      task(),
+      task({ status: "failed", lastMessage: "x".repeat(NOTIFY_BODY_LIMIT + 40) }),
+      "工作台",
+    );
+
+    assert.equal(Array.from(notify?.body ?? "").length, NOTIFY_BODY_LIMIT + 1);
+    assert.equal((notify?.body ?? "").endsWith("…"), true);
+  });
+
+  test("a long question keeps its question mark", () => {
+    const question = `README 里要不要补一段用 Homebrew 安装的方式？${"另外顺手说一下版本要求。".repeat(6)}`;
+    const notify = notifyForTaskChange(
+      task(),
+      task({
+        status: "waitingInput",
+        pendingRequest: {
+          id: "req-11",
+          kind: "input",
+          summary: "在等你回答",
+          questions: [{ id: "q1", question }],
+        },
+      }),
+      "工作台",
+    );
+
+    // 提问正文不按句子切：切成半句会把问号丢掉
+    assert.equal((notify?.body ?? "").startsWith("README 里要不要补一段用 Homebrew 安装的方式？"), true);
+    assert.equal(Array.from(notify?.body ?? "").length, NOTIFY_BODY_LIMIT + 1);
+  });
+
   test("long bodies are cut by code point, not by UTF-16 unit", () => {
     const wide = "🙂".repeat(NOTIFY_BODY_LIMIT + 50);
     const body = notifyForTaskChange(task(), task({ status: "completed", lastMessage: wide }), "工作台")?.body ?? "";

@@ -10,10 +10,15 @@ import type { BusNotify, BusPendingRequest, BusTask } from "./store.js";
 /**
  * 正文长度上限（码点）。
  *
- * 系统通知与 App 内横幅都放不下长文本，`lastMessage` 可能是一整段回复；
- * 协议没规定上限，这里自己钉一个，超出用省略号收口
+ * 原来随手钉了 200，那是"截得动"的量、不是"看得完"的量：应用内横幅按需求只有三行，
+ * 正文实际只剩一到两行位置；系统通知折叠态也大概两三行。中文一行按 20 多字估，
+ * 60 字是两处都能读完的量——这是估算，真机核对后再调，改的只有这一个常量。
+ * 界面另外还要按行数省略，两层各管各的：这里保证不送来长文，那里保证不撑破行。
  */
-export const NOTIFY_BODY_LIMIT = 200;
+export const NOTIFY_BODY_LIMIT = 60;
+
+/** 句子边界：任务完成的正文取第一句，比从中间砍一刀更像人话 */
+const SENTENCE_BREAK = /[\n。！？!?]/;
 
 /** 还在跑的状态：从这些状态进入终态才算「完成 / 失败」，翻历史时不会误报 */
 const ACTIVE_STATUSES = new Set(["running", "waitingApproval", "waitingInput", "idle"]);
@@ -51,10 +56,10 @@ export function notifyForTaskChange(
   if (previous.status === next.status) return null;
   if (!ACTIVE_STATUSES.has(previous.status)) return null;
   if (next.status === "completed") {
-    return build(next, "TASK_DONE", agentName, truncate(next.lastMessage) ?? "任务已完成");
+    return build(next, "TASK_DONE", agentName, firstSentence(next.lastMessage) ?? "任务已完成");
   }
   if (next.status === "failed") {
-    return build(next, "TASK_FAILED", agentName, truncate(next.lastMessage) ?? "任务失败");
+    return build(next, "TASK_FAILED", agentName, firstSentence(next.lastMessage) ?? "任务失败");
   }
   return null;
 }
@@ -96,4 +101,17 @@ function truncate(value: string | undefined): string | null {
   const characters = Array.from(text);
   if (characters.length <= NOTIFY_BODY_LIMIT) return text;
   return `${characters.slice(0, NOTIFY_BODY_LIMIT).join("")}…`;
+}
+
+/**
+ * 「做完了 / 失败了」那句取第一句，取不到分隔符再按上限硬截。
+ *
+ * 只用在这一类：提问正文不能这么切——「README 要不要写…？」切成半句就丢了问号，
+ * 审批正文常常是一行命令，切句子反而切错。所以只有完成与失败走这里
+ */
+function firstSentence(value: string | undefined): string | null {
+  const text = (value ?? "").trim();
+  if (!text) return null;
+  const head = text.split(SENTENCE_BREAK)[0]?.trim() ?? "";
+  return truncate(head || text);
 }
