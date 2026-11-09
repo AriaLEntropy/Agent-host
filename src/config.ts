@@ -111,6 +111,13 @@ export async function checkRelayHealth(config: Config, timeoutMs = 3000): Promis
 }
 
 export async function saveConfig(config: Config) {
+  // 测试进程里绝不允许静默写真实配置：Node test runner 会带 NODE_TEST_CONTEXT。
+  // 需要落盘的测试必须在用例里把 AGENT_HOST_CONFIG 指到临时文件。
+  if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_HOST_CONFIG) {
+    throw new Error(
+      "Refusing to write the real Agent-host config during tests; set AGENT_HOST_CONFIG to a temp file",
+    );
+  }
   const path = configPath();
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temp = `${path}.tmp`;

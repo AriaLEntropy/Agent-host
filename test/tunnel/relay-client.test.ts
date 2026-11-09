@@ -1,10 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { WebSocketServer } from "ws";
 import { Config } from "../../src/config.js";
 import { RelayClient, probeDsh } from "../../src/tunnel/relay-client.js";
+
+// RelayClient.start() 会给缺 agentId 的配置补一个并落盘；测试绝不能碰真实
+// %APPDATA%\agent-host\config.json，这里整体指到临时文件。
+process.env.AGENT_HOST_CONFIG =
+  process.env.AGENT_HOST_CONFIG ??
+  join(tmpdir(), `agent-host-relay-test-${randomUUID()}.json`);
 
 async function listen(options: { reject?: boolean } = {}): Promise<{
   port: number;
@@ -60,6 +69,7 @@ function config(port: number): Config {
     dshPort: 1,
     hostId: "host_overlap",
     hostToken: "token_overlap",
+    agentId: "agent-test",
   };
 }
 
