@@ -3,11 +3,12 @@ import { Config, saveConfig } from "../config.js";
 import { deriveClaimToken, generateMasterKey, hashClaimToken } from "./e2ee.js";
 import { pairingLink, publicRelayOrigin } from "./pair-link.js";
 
-async function post(url: string, data: unknown) {
+async function post(url: string, data: unknown, signal?: AbortSignal) {
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(data),
+    signal,
   });
   return { status: response.status, data: (await response.json()) as any };
 }
@@ -30,7 +31,7 @@ export type PairingTicket = {
   expiresAt: number;
   /** 等手机确认；成功后保存配置并返回新配置 */
   waitForConfirmation: () => Promise<Config>;
-  /** 停止轮询（服务端会话会自然过期） */
+  /** 停止等待（服务端会话会自然过期） */
   cancel: () => void;
 };
 
@@ -53,35 +54,90 @@ export async function createPairingTicket(config: Config): Promise<PairingTicket
   const origin = publicRelayOrigin(config.relay, config.publicRelayUrl);
   const link = pairingLink(origin, pairId, masterKey);
   let cancelled = false;
+  let abortWait: AbortController | null = null;
 
   return {
     link,
     expiresAt,
     cancel: () => {
       cancelled = true;
+      abortWait?.abort();
     },
     waitForConfirmation: async () => {
-      while (Date.now() < expiresAt) {
-        if (cancelled) throw new PairingExpiredError("pairing cancelled");
-        const response = await post(`${config.relay}/pair/confirm`, {
-          pairId,
-          confirmSecret,
-        });
-        if (response.status === 200) {
-          const confirmed = response.data as Record<string, any>;
-          const next: Config = {
-            ...config,
-            hostId: confirmed.hostId,
-            hostToken: confirmed.hostToken,
-            e2eeMasterKey: masterKey,
-          };
-          await saveConfig(next);
-          return next;
-        }
-        if (response.status !== 202) {
+      const controller = new AbortController();
+      abortWait = controller;
+      // claim 之后只 confirm 一次；202 说明和 wait 抢跑了，回去接着等
+      const confirm = async (): Promise<Config | null> => {
+        for (;;) {
+          if (cancelled) throw new PairingExpiredError("pairing cancelled");
+          const response = await post(`${config.relay}/pair/confirm`, {
+            pairId,
+            confirmSecret,
+          });
+          if (response.status === 200) {
+            const confirmed = response.data as Record<string, any>;
+            const next: Config = {
+              ...config,
+              hostId: confirmed.hostId,
+              hostToken: confirmed.hostToken,
+              e2eeMasterKey: masterKey,
+            };
+            await saveConfig(next);
+            return next;
+          }
+          if (response.status === 429) {
+            await sleep(3000);
+            continue;
+          }
+          if (response.status === 202) return null;
+          if (response.status === 410) {
+            throw new PairingExpiredError("pairing QR expired");
+          }
           throw new Error(`Pairing failed (${response.status})`);
         }
-        await sleep(2000);
+      };
+      // 老 relay 没有 /pair/wait 时回退到原来的 confirm 轮询
+      let legacy = false;
+      while (Date.now() < expiresAt) {
+        if (cancelled) throw new PairingExpiredError("pairing cancelled");
+        if (legacy) {
+          const done = await confirm();
+          if (done) return done;
+          await sleep(2000);
+          continue;
+        }
+        let response: { status: number; data: any };
+        try {
+          response = await post(
+            `${config.relay}/pair/wait`,
+            { pairId, confirmSecret, timeoutMs: 25000 },
+            controller.signal,
+          );
+        } catch {
+          if (cancelled) throw new PairingExpiredError("pairing cancelled");
+          await sleep(3000);
+          continue;
+        }
+        if (response.status === 404) {
+          legacy = true;
+          continue;
+        }
+        // 429 只是这一拍被限流，配对会话还在，慢一拍接着等，不能当成失败退出
+        if (response.status === 429) {
+          await sleep(3000);
+          continue;
+        }
+        if (response.status === 410) {
+          throw new PairingExpiredError("pairing QR expired");
+        }
+        if (response.status !== 200) {
+          throw new Error(`Pairing failed (${response.status})`);
+        }
+        if (response.data?.status === "claimed") {
+          const done = await confirm();
+          if (done) return done;
+        }
+        // pending：这一拍挂满了，接着挂起等 relay 通知
       }
       throw new PairingExpiredError("pairing QR expired");
     },
