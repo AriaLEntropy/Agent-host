@@ -556,6 +556,7 @@ export class RelayClient {
         forwardsDsh: this.health,
         body: Buffer.from(msg.payload.bodyB64 ?? "", "base64"),
         contentType: headerValue(msg.payload.headers, "content-type"),
+        filename: headerValue(msg.payload.headers, "x-bus-filename"),
       });
     } catch {
       // routeBus 自己会把产物 I/O 错误折成 JSON；这里只兜住意外异常，

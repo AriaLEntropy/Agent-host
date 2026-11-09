@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { copyFile, mkdir } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -20,6 +20,7 @@ import {
   isValidArtifactId,
   putArtifact,
   resolveAttachment,
+  sanitizeUploadName,
 } from "../bus/artifacts.js";
 import { imagesForMessage } from "../bus/conversation-images.js";
 import { hostDataDir } from "../config.js";
@@ -41,6 +42,9 @@ import {
 } from "./acp/runtime-watcher.js";
 import { createClaudeConnector, createClaudeMessageReader } from "./claude/index.js";
 import { createCodexConnector, createCodexMessageReader } from "./codex/index.js";
+import { CodexObserver, codexAvailability } from "./codex/observer.js";
+import { CodexPaths } from "./codex/paths.js";
+import { CodexThreadReader } from "./codex/thread-reader.js";
 import { isDedicatedKind, type DedicatedKind } from "./descriptors.js";
 import { discoverAgents, type AgentSpec, type ManifestProblem } from "./discover.js";
 import {
@@ -118,8 +122,14 @@ installAcpSessionArchiveHooks();
 
 type AttachmentRef = { artifactId?: unknown };
 
-/** 解析后的一张图：路径加本机缓存的类型，ACP 需要 mimeType。 */
-type ResolvedAttachment = { artifactId: string; path: string; contentType: string };
+/** 解析后的附件：图片给 ACP 的 mimeType，文件额外带原文件名。 */
+type ResolvedAttachment = {
+  artifactId: string;
+  path: string;
+  contentType: string;
+  title?: string;
+  kind?: "image" | "file";
+};
 
 /**
  * 逐个把协议里的 `attachments` 解析成本机文件。
@@ -133,7 +143,7 @@ async function resolveAttachmentFiles(
   agentKind: string,
 ): Promise<ResolvedAttachment[]> {
   if (attachments.length > MAX_ATTACHMENT_IMAGES) {
-    throw new Error(`一次最多只能发 ${MAX_ATTACHMENT_IMAGES} 张图片`);
+    throw new Error(`一次最多只能发 ${MAX_ATTACHMENT_IMAGES} 个附件`);
   }
   const resolved: ResolvedAttachment[] = [];
   for (const item of attachments) {
@@ -142,25 +152,65 @@ async function resolveAttachmentFiles(
     const found = await resolveAttachment(attachment);
     if (!found) {
       throw new Error(
-        `图片已过期或不存在：${artifactId || `(缺少 artifactId，来自 ${agentKind})`}`,
+        `附件已过期或不存在：${artifactId || `(缺少 artifactId，来自 ${agentKind})`}`,
       );
     }
-    resolved.push({ artifactId, path: found.path, contentType: found.contentType });
+    resolved.push({
+      artifactId,
+      path: found.path,
+      contentType: found.contentType,
+      ...(found.title ? { title: found.title } : {}),
+      ...(found.kind ? { kind: found.kind } : {}),
+    });
   }
   return resolved;
 }
 
 /**
- * 把手机发来的 `MessageAttachment[]` 解析成连接器认的 `ImageSource[]`
- * 任何一张失败都会抛错（见 `resolveAttachmentFiles`），调用方原样报给手机
- * 没有附件时返回空数组，调用方行为与之前一致。
+ * 把手机发来的 `MessageAttachment[]` 里的图片解析成连接器认的 `ImageSource[]`
+ * 普通文件不进图片块，由 `appendFilePrompt` 写成 Agent 可读的本机路径。
  */
 export async function resolveImages(
   attachments: readonly unknown[] | undefined,
   agentKind: string,
 ): Promise<ImageSource[]> {
   const resolved = await resolveAttachmentFiles(attachments ?? [], agentKind);
-  return resolved.map((item) => ({ type: "file" as const, path: item.path }));
+  return resolved
+    .filter((item) => item.kind === "image" || item.contentType.startsWith("image/"))
+    .map((item) => ({ type: "file" as const, path: item.path }));
+}
+
+/**
+ * 普通文件附件：复制到 `hostDataDir()/incoming/<artifactId>/<原文件名>`，
+ * 把本机路径附在 prompt 末尾；所有 Agent 都能按路径读。
+ *
+ * 图片不走这里；它继续进连接器的 image 内容块。
+ */
+export async function appendFilePrompt(
+  prompt: string,
+  attachments: readonly unknown[] | undefined,
+  agentKind: string,
+): Promise<string> {
+  const resolved = await resolveAttachmentFiles(attachments ?? [], agentKind);
+  const files = resolved.filter(
+    (item) => item.kind === "file" || !item.contentType.startsWith("image/"),
+  );
+  if (files.length === 0) return prompt;
+  const targets: string[] = [];
+  for (const file of files) {
+    const name = sanitizeUploadName(file.title) ?? `${file.artifactId}.bin`;
+    const dir = join(hostDataDir(), "incoming", file.artifactId);
+    const target = join(dir, name);
+    try {
+      await mkdir(dir, { recursive: true });
+      await copyFile(file.path, target);
+    } catch {
+      throw new Error(`附件文件已过期或不存在：${file.artifactId}`);
+    }
+    targets.push(target);
+  }
+  const header = "\n\n[附件文件，本机路径]\n";
+  return `${prompt}${header}${targets.map((path) => `- ${path}`).join("\n")}\n`;
 }
 
 type AcpImageBlock = { type: "image"; data: string; mimeType: string };
@@ -538,6 +588,8 @@ export async function flushConnectorSettings(): Promise<void> {
 type DedicatedInstance = { connector: TaskConnector; executable?: string };
 const dedicatedConnectors = new Map<DedicatedKind, DedicatedInstance>();
 const dedicatedReaders = new Map<DedicatedKind, MessageReader>();
+/** Codex 的只读观察者：只看库，不拉 app-server；历史会话靠它进任务列表。 */
+let codexObserver: CodexObserver | undefined;
 
 export type DedicatedConnectorFactory = (spec: AgentSpec) => TaskConnector;
 export type DedicatedReaderFactory = () => MessageReader;
@@ -910,7 +962,11 @@ async function reconcileAcpAgent(spec: AgentSpec, generation: number) {
   state.baselined = true;
   state.coverageStart = coverageStart;
 
-  if (baseline) return;
+  if (baseline) {
+    // 基线本身逐条静默写入；补完后推一份全量快照，已经连着的手机立刻看到历史会话
+    if (incoming.size > 0) busStore.setAgents(specs.map(listed), true);
+    return;
+  }
   // OpenCode 以数据库为准（读满上限时只摘 coverageStart 之后的）；其余看列表是否完整。
   const canRemove =
     spec.id === OPENCODE_CONNECTOR_ID ? openCodeComplete : listSucceeded && listComplete;
@@ -1003,7 +1059,7 @@ function acpListedTask(spec: AgentSpec, info: AcpListedSession, process: AcpProc
   };
 }
 
-/** 上游 `SessionFormatting.recentWindow`：列表里只留 7 天窗口内的会话。 */
+/** 列表里只留会话回溯窗口内的记录；窗口一年，条数由 store 与各来源上限收敛。 */
 function acpListItemInWindow(info: AcpListedSession, nowMs: number): boolean {
   if (!info.updatedAt) return true;
   const updated = Date.parse(info.updatedAt);
@@ -1120,6 +1176,7 @@ export function resetRuntime() {
   for (const kind of [...dedicatedConnectors.keys()]) destroyDedicated(kind);
   dedicatedReaders.clear();
   dedicatedFactories = {};
+  stopCodexObserver();
   destroyDsh();
   dshFactories = {};
   specs.splice(0, specs.length);
@@ -1174,7 +1231,14 @@ export async function refreshAgents(
 export function startConnectorWatcher(options: ConnectorWatcherOptions = {}): Promise<void> {
   connectorWatcher ??= new ConnectorWatcherController({
     ...options,
-    refresh: options.refresh ?? (() => refreshAgents()),
+    refresh:
+      options.refresh ??
+      (async () => {
+        const found = await refreshAgents();
+        // 新装的一档 agent 也要马上补历史，不用等下一次重启
+        startDedicatedConnectors(found.agents);
+        return found;
+      }),
   });
   return connectorWatcher.start();
 }
@@ -1486,11 +1550,15 @@ async function startTask(commandId: string, payload: Record<string, unknown>): P
   const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
   // 先解析附件：缺图/过期/超过 4 张都在起进程之前失败。
   const resolvedAttachments = await resolveAttachmentFiles(attachments, "acp");
+  const imageAttachments = resolvedAttachments.filter(
+    (item) => item.kind === "image" || item.contentType.startsWith("image/"),
+  );
   const process = await ensureProcess(spec);
-  if (resolvedAttachments.length > 0 && !process.capabilities.image) {
+  if (imageAttachments.length > 0 && !process.capabilities.image) {
     return done(commandId, false, "image is not supported");
   }
-  const imageBlocks = await acpImageBlocks(resolvedAttachments);
+  const imageBlocks = await acpImageBlocks(imageAttachments);
+  const promptWithFiles = await appendFilePrompt(prompt, attachments, "acp");
   const hasProject = typeof payload.projectPath === "string" && payload.projectPath.trim().length > 0;
   const cwd = hasProject ? String(payload.projectPath).trim() : homedir();
   const created = record(await process.call("session/new", { cwd, mcpServers: [] }));
@@ -1538,7 +1606,7 @@ async function startTask(commandId: string, payload: Record<string, unknown>): P
   }
   busStore.upsertTask(task);
   flushEarlySessionUpdates(session);
-  void runPrompt(process, taskId, prompt, imageBlocks).catch((error) =>
+  void runPrompt(process, taskId, promptWithFiles, imageBlocks).catch((error) =>
     markFailed(taskId, messageOf(error)),
   );
   return { commandId, ok: true, taskId, finishedAt: now };
@@ -1567,6 +1635,9 @@ async function followUp(commandId: string, payload: Record<string, unknown>): Pr
   }
   const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
   const resolvedAttachments = await resolveAttachmentFiles(attachments, "acp");
+  const imageAttachments = resolvedAttachments.filter(
+    (item) => item.kind === "image" || item.contentType.startsWith("image/"),
+  );
   let process = processes.get(processKey(spec));
   if (!process?.alive) {
     process = await ensureProcess(spec);
@@ -1574,10 +1645,11 @@ async function followUp(commandId: string, payload: Record<string, unknown>): Pr
     else if (process.capabilities.resume) await process.call("session/resume", { sessionId: session.sessionId, cwd: session.cwd, mcpServers: [] });
     else return done(commandId, false, "session cannot be restored");
   }
-  if (resolvedAttachments.length > 0 && !process.capabilities.image) {
+  if (imageAttachments.length > 0 && !process.capabilities.image) {
     return done(commandId, false, "image is not supported");
   }
-  const imageBlocks = await acpImageBlocks(resolvedAttachments);
+  const imageBlocks = await acpImageBlocks(imageAttachments);
+  const promptWithFiles = await appendFilePrompt(prompt, attachments, "acp");
   const nextTask = { ...task };
   const requestedModel = typeof payload.model === "string" ? payload.model.trim() : "";
   const requestedEffort = typeof payload.effort === "string" ? payload.effort.trim() : "";
@@ -1591,7 +1663,7 @@ async function followUp(commandId: string, payload: Record<string, unknown>): Pr
     busStore.upsertTask({ ...nextTask, updatedAt: new Date().toISOString() });
   }
   busStore.bumpSessionRevision(taskId);
-  void runPrompt(process, taskId, prompt, imageBlocks).catch((error) =>
+  void runPrompt(process, taskId, promptWithFiles, imageBlocks).catch((error) =>
     markFailed(taskId, messageOf(error)),
   );
   return done(commandId, true, undefined, taskId);
@@ -2117,6 +2189,8 @@ export async function applyConnectorEnabled(
   if (enabled && spec.kind === "acp" && acpReconcileEligible(spec)) {
     void reconcileAcpSessionsNow().catch(() => undefined);
   }
+  // 一档刚启用时同样立刻立起来：Claude 补历史、Codex 开观察者
+  if (enabled && isDedicatedKind(spec.kind)) startDedicatedConnectors([spec]);
   busStore.setAgents(specs.map(listed), true);
   return { ok: true };
 }
@@ -2154,7 +2228,11 @@ async function restartConnector(
   const settings = await ensureConnectorSettings();
   settings.setEnabled(spec.kind, settingsConnectorId(spec), true);
   if (isDedicatedKind(spec.kind)) {
-    if (spec.available && (spec.kind === "openclaw" || spec.executable)) connectorForSpec(spec);
+    // 重启命令要真的重建连接器；Codex 顺带把只读观察者也拉起来
+    if (spec.available && (spec.kind === "openclaw" || spec.executable)) {
+      connectorForSpec(spec);
+      if (spec.kind === "codex") startCodexObserver();
+    }
   } else if (spec.kind === "dsh") {
     reconcileDsh(specs);
   }
@@ -2201,7 +2279,11 @@ async function startDedicatedTask(
   }
   const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
   const images = await resolveImages(attachments, kind);
-  const prompt = typeof payload.prompt === "string" ? payload.prompt : "";
+  const prompt = await appendFilePrompt(
+    typeof payload.prompt === "string" ? payload.prompt : "",
+    attachments,
+    kind,
+  );
   const hasProject = typeof payload.projectPath === "string" && payload.projectPath.trim().length > 0;
   // 与上游一致：空目录 = 不在项目中；OpenClaw 退回它的默认工作区，其余在用户主目录下跑。
   const projectPath = hasProject
@@ -2239,7 +2321,11 @@ async function dedicatedFollowUp(
   if (autoApproveError) return done(commandId, false, autoApproveError);
   const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
   const images = await resolveImages(attachments, kind);
-  const prompt = typeof payload.prompt === "string" ? payload.prompt : "";
+  const prompt = await appendFilePrompt(
+    typeof payload.prompt === "string" ? payload.prompt : "",
+    attachments,
+    kind,
+  );
   const connector = connectorForSpec(spec!);
   return runDedicatedOutcome(commandId, taskId, kind, () =>
     connector.followUp(taskId, prompt, images, selectionOf(payload)),
@@ -2413,6 +2499,40 @@ function reconcileDedicated(agents: AgentSpec[]) {
   for (const kind of [...dedicatedReaders.keys()]) {
     if (!desired.has(kind)) dedicatedReaders.delete(kind);
   }
+  const codex = desired.get("codex");
+  if (!codex || !codex.enabled || !codex.available) stopCodexObserver();
+}
+
+/**
+ * 启动 / 新装后把一档连接器先立起来
+ *
+ * Claude 的 `startHostServices` 才会补回 `~/.claude/projects` 里的历史会话；
+ * Codex 只用只读观察者看库，不为历史拉 app-server；其余一档按原有构造逻辑
+ */
+export function startDedicatedConnectors(agents: AgentSpec[] = specs) {
+  for (const spec of agents) {
+    if (!isDedicatedKind(spec.kind) || !spec.enabled || !spec.available) continue;
+    if (spec.kind !== "openclaw" && !spec.executable) continue;
+    try {
+      if (spec.kind === "codex") startCodexObserver();
+      else connectorForSpec(spec);
+    } catch {
+      // 预热是尽力而为：某一个连接器起不来不能挡住 Main 启动或下一次发现
+    }
+  }
+}
+
+function startCodexObserver() {
+  if (codexObserver) return;
+  codexObserver = new CodexObserver(busHost, {
+    availability: () => codexAvailability(() => CodexThreadReader.create(new CodexPaths())),
+  });
+  codexObserver.start();
+}
+
+function stopCodexObserver() {
+  codexObserver?.stop();
+  codexObserver = undefined;
 }
 
 function destroyDedicated(kind: DedicatedKind) {
@@ -2473,6 +2593,8 @@ function builtinConnector(spec: AgentSpec): TaskConnector {
         autoApproves: hooks.autoApproves,
         setModels: hooks.setModels,
         broadcastSnapshot: hooks.broadcastSnapshot,
+        // 启动补历史是静默基线：只写 store，不逐条推 taskUpdated
+        upsert: (task, notify) => busStore.upsertTask(task, notify),
       });
     }
     case "hermes":
@@ -2617,7 +2739,11 @@ async function startDshTask(
   const images = await resolveImages(attachments, "dsh");
   const connector = connectorForDsh();
   if (!connector) return done(commandId, false, dshUnavailableError());
-  const prompt = typeof payload.prompt === "string" ? payload.prompt : "";
+  const prompt = await appendFilePrompt(
+    typeof payload.prompt === "string" ? payload.prompt : "",
+    attachments,
+    "dsh",
+  );
   const hasProject = typeof payload.projectPath === "string" && payload.projectPath.trim().length > 0;
   // 与旧 ACP 分支一致：没给项目目录就在用户主目录下开。
   const projectPath = hasProject ? String(payload.projectPath).trim() : homedir();
@@ -2643,7 +2769,11 @@ async function dshFollowUp(
   if (!connector) return done(commandId, false, dshUnavailableError());
   const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
   const images = await resolveImages(attachments, "dsh");
-  const prompt = typeof payload.prompt === "string" ? payload.prompt : "";
+  const prompt = await appendFilePrompt(
+    typeof payload.prompt === "string" ? payload.prompt : "",
+    attachments,
+    "dsh",
+  );
   return runDshOutcome(commandId, taskId, () =>
     connector.followUp(taskId, prompt, images, selectionOf(payload)),
   );

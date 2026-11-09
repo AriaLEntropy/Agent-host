@@ -9,8 +9,10 @@ import { busStore, hostPlatform } from "../bus/store.js";
 import {
   applyHostSettings,
   flushConnectorSettings,
+  reconcileAcpSessionsNow,
   refreshAgents,
   startConnectorWatcher,
+  startDedicatedConnectors,
   stopConnectorWatcher,
 } from "../connectors/runtime.js";
 import {
@@ -58,6 +60,10 @@ export async function prepareHost(): Promise<Config> {
     platform: hostPlatform(),
   });
   const found = await refreshAgents().catch(() => undefined);
+  // 一档连接器不等手机下命令才立起来：Claude / Codex 的历史会话要在这时补进列表
+  if (found) startDedicatedConnectors(found.agents);
+  // ACP 的首轮对账也别等 60 秒定时器；OpenCode 的历史会话开机就该在
+  void reconcileAcpSessionsNow().catch(() => undefined);
   createLogger("agent-host", "lifecycle").info("host prepared", {
     version: logPublic(PLUGIN_VERSION),
     platform: process.platform,

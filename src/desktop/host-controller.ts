@@ -7,6 +7,7 @@ import {
   localManifestProblems,
   refreshAgents,
   startConnectorWatcher,
+  startDedicatedConnectors,
   type LocalAgentSummary,
 } from "../connectors/runtime.js";
 import { checkRelayHealth, loadConfig, saveConfig, type Config } from "../config.js";
@@ -123,7 +124,8 @@ export class HostController {
 
   /** 托盘「刷新列表」：重新发现本机 Agent（装完新 Agent 后不用重启托盘） */
   async refreshAgents(): Promise<void> {
-    await refreshAgents().catch(() => undefined);
+    const found = await refreshAgents().catch(() => undefined);
+    if (found) startDedicatedConnectors(found.agents);
     this.emit();
   }
 

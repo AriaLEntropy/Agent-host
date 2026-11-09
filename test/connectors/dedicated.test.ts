@@ -19,6 +19,7 @@ import {
   executeCommand,
   resetRuntime,
   setDedicatedFactories,
+  startDedicatedConnectors,
   useAgents,
   type DedicatedConnectorFactory,
   type DedicatedReaderFactory,
@@ -124,6 +125,25 @@ function installFake(kind: DedicatedKind, calls: Call[], reads: string[]) {
 }
 
 describe("dedicated connectors", { concurrency: false }, () => {
+  test("startDedicatedConnectors builds enabled connectors before a phone command", () => {
+    reset();
+    let built = 0;
+    setDedicatedFactories({
+      connectors: {
+        hermes: () => {
+          built += 1;
+          return fakeConnector("hermes", []);
+        },
+      },
+    });
+    useAgents([specFor("hermes")]);
+    assert.equal(built, 0);
+    startDedicatedConnectors();
+    assert.equal(built, 1);
+    startDedicatedConnectors();
+    assert.equal(built, 1, "already built instances are reused");
+  });
+
   for (const kind of DEDICATED_KINDS) {
     test(`${kind}: commands route to its connector and reader`, async () => {
       reset();
@@ -232,7 +252,7 @@ describe("dedicated connectors", { concurrency: false }, () => {
       },
     });
     assert.equal(started.ok, false);
-    assert.match(started.error ?? "", /^图片已过期或不存在：/);
+    assert.match(started.error ?? "", /^附件已过期或不存在：/);
     assert.equal(calls.some((call) => call.method === "start"), false);
   });
 

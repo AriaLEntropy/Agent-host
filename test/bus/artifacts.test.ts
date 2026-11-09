@@ -74,7 +74,7 @@ test("content type parameters are normalized and jpeg/gif/webp are accepted", as
 
 test("non-image content types are rejected", async () => {
   const id = artifactId("type-reject");
-  for (const type of ["text/plain", "image/svg+xml", "application/octet-stream", ""]) {
+  for (const type of ["image/svg+xml", "application/octet-stream", ""]) {
     await assert.rejects(
       putUpload(id, PNG, type),
       (error: unknown) =>
@@ -82,6 +82,22 @@ test("non-image content types are rejected", async () => {
     );
   }
   assert.deepEqual(await readdir(dir), []);
+});
+
+test("document uploads require a filename and resolve as files", async () => {
+  const id = artifactId("file-doc");
+  const bytes = Buffer.from("%PDF-1.7");
+  await assert.rejects(
+    putUpload(id, bytes, "application/pdf"),
+    (error: unknown) =>
+      error instanceof ArtifactError && error.code === "invalid_name",
+  );
+  const stored = await putUpload(id, bytes, "application/pdf", new Date(), "报告.pdf");
+  assert.equal(stored.size, bytes.length);
+  const found = await resolveAttachment({ artifactId: id });
+  assert.equal(found?.kind, "file");
+  assert.equal(found?.title, "报告.pdf");
+  assert.equal(found?.contentType, "application/pdf");
 });
 
 test("putArtifact stores PDF / video files but still rejects non-media types", async () => {

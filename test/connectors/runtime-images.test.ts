@@ -157,7 +157,7 @@ describe("runtime images", { concurrency: false }, () => {
     await assert.rejects(
       resolveImages([attachmentFor(artifactId("missing"))], "codex"),
       (error: unknown) =>
-        error instanceof Error && error.message === `图片已过期或不存在：${artifactId("missing")}`,
+        error instanceof Error && error.message === `附件已过期或不存在：${artifactId("missing")}`,
     );
     assert.deepEqual(await resolveImages([], "codex"), []);
   });
@@ -221,7 +221,7 @@ describe("runtime images", { concurrency: false }, () => {
       },
     });
     assert.equal(failed.ok, false);
-    assert.equal(failed.error, `图片已过期或不存在：${missing}`);
+    assert.equal(failed.error, `附件已过期或不存在：${missing}`);
     assert.equal(calls.some((call) => call.method === "start"), false);
 
     const expired = await upload("expired-image", new Date(Date.now() - ARTIFACT_TTL_MS - 1000));
@@ -236,7 +236,7 @@ describe("runtime images", { concurrency: false }, () => {
       },
     });
     assert.equal(expiredResult.ok, false);
-    assert.equal(expiredResult.error, `图片已过期或不存在：${expired}`);
+    assert.equal(expiredResult.error, `附件已过期或不存在：${expired}`);
     assert.equal(calls.some((call) => call.method === "start"), false);
   });
 
@@ -263,7 +263,7 @@ describe("runtime images", { concurrency: false }, () => {
       },
     });
     assert.equal(started.ok, false);
-    assert.match(started.error ?? "", new RegExp(`最多只能发 ${MAX_ATTACHMENT_IMAGES} 张图片`));
+    assert.match(started.error ?? "", new RegExp(`最多只能发 ${MAX_ATTACHMENT_IMAGES} 个附件`));
     assert.equal(calls.some((call) => call.method === "start"), false);
   });
 

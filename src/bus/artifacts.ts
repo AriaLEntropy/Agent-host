@@ -42,12 +42,34 @@ export const TEMP_FILE_MAX_AGE_MS = 60 * 60 * 1000;
 /** 协议：Agent 生成的 22 字符 base64url（16 随机字节）。 */
 export const ARTIFACT_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
 
-/** 手机上传只收图片；SVG 等可执行/可嵌入脚本的类型一律拒绝。 */
+/** 手机上传的图片类型；SVG 等可执行/可嵌入脚本的类型一律拒绝。 */
 export const ALLOWED_UPLOAD_TYPES: ReadonlySet<string> = new Set([
   "image/png",
   "image/jpeg",
   "image/gif",
   "image/webp",
+]);
+
+/**
+ * 手机上传的普通文件类型（FR-9.1 文件附件）。
+ *
+ * 只收常见文档，不收可执行文件/脚本/HTML；文件交给 Agent 读取时按本地路径，
+ * 最多 2 MiB（与阶段一隧道请求上限一致）。
+ */
+export const ALLOWED_UPLOAD_FILE_TYPES: ReadonlySet<string> = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "text/tab-separated-values",
+  "application/json",
+  "application/zip",
 ]);
 
 /**
@@ -95,7 +117,7 @@ export function sniffUploadType(bytes: Buffer): string | null {
   return null;
 }
 
-export type ArtifactErrorCode = "invalid_id" | "too_large" | "unsupported_type";
+export type ArtifactErrorCode = "invalid_id" | "invalid_name" | "too_large" | "unsupported_type";
 
 export class ArtifactError extends Error {
   constructor(readonly code: ArtifactErrorCode) {
@@ -108,6 +130,10 @@ export type ArtifactMeta = {
   contentType: string;
   size: number;
   createdAt: string;
+  /** 手机上传时的原文件名；普通文件附件必填，图片可空。 */
+  title?: string;
+  /** 手机上传的图片 / 普通文件；本机取回的产物可省略。 */
+  kind?: "image" | "file";
 };
 
 export type StoredArtifact = ArtifactMeta & { bytes: Buffer };
@@ -188,9 +214,12 @@ async function readRecord(artifactId: string): Promise<ArtifactRecord | null> {
     const parsed = JSON.parse(bytes.toString("utf8")) as Partial<ArtifactRecord>;
     if (parsed.version !== 1 || parsed.id !== artifactId) return null;
     if (typeof parsed.contentType !== "string") return null;
-    // 元数据读取接受对话取回的媒体类型（图片 / 视频 / PDF）；手机上传的更严格
-    // 限制在 `resolveAttachment` 里单独把守。
-    if (!isAllowedArtifactType(parsed.contentType)) return null;
+    const kind = parsed.kind === "file" ? "file" : parsed.kind === "image" ? "image" : undefined;
+    const title = typeof parsed.title === "string" && parsed.title.trim() ? parsed.title : undefined;
+    // 元数据读取接受对话取回的媒体类型（图片 / 视频 / PDF）；手机上传的图片仍由
+    // `resolveAttachment` 的图片名单把守。手机上传的普通文件靠 kind + title 识别，
+    // contentType 可能是 docx/xlsx 这类不在 `isAllowedArtifactType` 里的文档。
+    if (!isAllowedArtifactType(parsed.contentType) && !(kind === "file" && title)) return null;
     if (!Number.isInteger(parsed.size) || (parsed.size as number) < 0) return null;
     if (
       typeof parsed.createdAt !== "string" ||
@@ -204,6 +233,8 @@ async function readRecord(artifactId: string): Promise<ArtifactRecord | null> {
       contentType: parsed.contentType,
       size: parsed.size as number,
       createdAt: parsed.createdAt,
+      ...(title ? { title } : {}),
+      ...(kind ? { kind } : {}),
     };
   } catch {
     return null;
@@ -230,6 +261,7 @@ async function writeArtifact(
   bytes: Buffer,
   mediaType: string,
   now: Date,
+  extra: { title?: string; kind?: "image" | "file" } = {},
 ): Promise<StoredUpload> {
   await ensureRoot();
   const record: ArtifactRecord = {
@@ -238,6 +270,8 @@ async function writeArtifact(
     contentType: mediaType,
     size: bytes.length,
     createdAt: now.toISOString(),
+    ...(extra.title ? { title: extra.title } : {}),
+    ...(extra.kind ? { kind: extra.kind } : {}),
   };
   const tempSuffix = `${process.pid}-${randomUUID()}`;
   const tempData = `${dataPath(artifactId)}.${tempSuffix}.tmp`;
@@ -254,22 +288,46 @@ async function writeArtifact(
   return { artifactId, size: bytes.length, createdAt: record.createdAt };
 }
 
-/** 存一份手机上传的图（只收 4 种常见图片，≤ 2 MiB）。 */
+/** 文件名只保留最后一段，去掉路径分隔符和控制字符，限 120 字。 */
+export function sanitizeUploadName(value: string | undefined): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const cleaned = value
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  return cleaned || undefined;
+}
+
+/**
+ * 存一份手机上传的附件（图片 4 种，≤ 2 MiB；普通文件走文档名单，≤ 2 MiB）。
+ *
+ * 图片仍要过字节头嗅探；普通文件只信 Content-Type + 文件名，交给 Agent 时按
+ * 本机路径读取，不当作图片内容块。
+ */
 export async function putUpload(
   artifactId: string,
   bytes: Buffer,
   contentType: string | undefined,
   now: Date = new Date(),
+  filename?: string,
 ): Promise<StoredUpload> {
   if (!isValidArtifactId(artifactId)) throw new ArtifactError("invalid_id");
   if (bytes.length > MAX_UPLOAD_BYTES) throw new ArtifactError("too_large");
   const mediaType = normalizeContentType(contentType);
-  if (!ALLOWED_UPLOAD_TYPES.has(mediaType)) throw new ArtifactError("unsupported_type");
-  // 声明在这四项里还不够，字节头也得真是图片：自称 `image/png` 的文本进了缓存，
-  // 要等连接器读图才炸，那时已经说不清是谁的问题。空字节同样拒，以前能写出一个 0 字节产物。
-  // 四种图片之间不再核对具体格式——编码器与声明偶尔对不上，拒掉是用户可见的回归
-  if (sniffUploadType(bytes) === null) throw new ArtifactError("unsupported_type");
-  return writeArtifact(artifactId, bytes, mediaType, now);
+  const title = sanitizeUploadName(filename);
+  if (ALLOWED_UPLOAD_TYPES.has(mediaType)) {
+    // 声明在这四项里还不够，字节头也得真是图片：自称 `image/png` 的文本进了缓存，
+    // 要等连接器读图才炸，那时已经说不清是谁的问题。空字节同样拒。
+    if (sniffUploadType(bytes) === null) throw new ArtifactError("unsupported_type");
+    return writeArtifact(artifactId, bytes, mediaType, now, {
+      ...(title ? { title } : {}),
+      kind: "image",
+    });
+  }
+  if (!ALLOWED_UPLOAD_FILE_TYPES.has(mediaType)) throw new ArtifactError("unsupported_type");
+  if (!title) throw new ArtifactError("invalid_name");
+  return writeArtifact(artifactId, bytes, mediaType, now, { title, kind: "file" });
 }
 
 /**
@@ -409,13 +467,15 @@ const TEMP_FILE_NAME_PATTERN =
 export async function resolveAttachment(
   attachment: { artifactId?: unknown } | null | undefined,
   now: Date = new Date(),
-): Promise<{ path: string; contentType: string } | null> {
+): Promise<{ path: string; contentType: string; title?: string; kind?: "image" | "file" } | null> {
   const artifactId = attachment?.artifactId;
   if (!isValidArtifactId(artifactId)) return null;
   const record = await readRecord(artifactId);
   if (!record) return null;
-  // 产物缓存现在也放视频 / PDF（`fetchFile`），但手机附件仍然只收上传时允许的图片类型。
-  if (!ALLOWED_UPLOAD_TYPES.has(record.contentType)) return null;
+  // 产物缓存现在也放视频 / PDF（`fetchFile`）；手机附件只认上传时记录的图片或文件。
+  const isImage = ALLOWED_UPLOAD_TYPES.has(record.contentType);
+  const isFile = record.kind === "file" && Boolean(record.title);
+  if (!isImage && !isFile) return null;
   if (isExpired(record.createdAt, now)) {
     await removeArtifact(artifactId);
     return null;
@@ -427,5 +487,10 @@ export async function resolveAttachment(
   } catch {
     return null;
   }
-  return { path, contentType: record.contentType };
+  return {
+    path,
+    contentType: record.contentType,
+    ...(record.title ? { title: record.title } : {}),
+    kind: isFile ? "file" : "image",
+  };
 }

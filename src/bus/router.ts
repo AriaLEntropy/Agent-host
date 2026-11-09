@@ -32,6 +32,8 @@ export async function routeBus(input: {
   body?: Buffer;
   /** 上传请求的 `content-type` 头，由隧道层透传；其他路由忽略。 */
   contentType?: string;
+  /** 上传请求的原文件名（x-bus-filename，URL 编码），普通文件附件必填。 */
+  filename?: string;
 }): Promise<BusResponse> {
   const pathname = input.path.split("?")[0];
   const since = new URLSearchParams(input.path.split("?")[1] ?? "").get("since");
@@ -96,7 +98,16 @@ export async function routeBus(input: {
       return { status: 413, body: { error: "too_large" } };
     }
     try {
-      const stored = await putUpload(artifactId, body, input.contentType);
+      const filename = input.filename
+        ? (() => {
+            try {
+              return decodeURIComponent(input.filename);
+            } catch {
+              return input.filename;
+            }
+          })()
+        : undefined;
+      const stored = await putUpload(artifactId, body, input.contentType, new Date(), filename);
       return {
         status: 201,
         body: { artifactId: stored.artifactId, size: stored.size },
@@ -105,6 +116,9 @@ export async function routeBus(input: {
       if (error instanceof ArtifactError) {
         if (error.code === "invalid_id") {
           return { status: 400, body: { error: "invalid_artifact_id" } };
+        }
+        if (error.code === "invalid_name") {
+          return { status: 400, body: { error: "invalid_filename" } };
         }
         if (error.code === "unsupported_type") {
           return { status: 415, body: { error: "unsupported_media_type" } };

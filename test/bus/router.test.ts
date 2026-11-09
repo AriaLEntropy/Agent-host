@@ -220,9 +220,19 @@ describe("bus routes", { concurrency: false }, () => {
       path: `/bus/uploads/${"B".repeat(22)}`,
       agentId,
       body: bytes,
-      contentType: "text/plain",
+      contentType: "application/x-msdownload",
     });
     assert.equal(wrongType.status, 415);
+
+    const document = await routeBus({
+      method: "PUT",
+      path: `/bus/uploads/${"D".repeat(22)}`,
+      agentId,
+      body: Buffer.from("%PDF-1.7"),
+      contentType: "application/pdf",
+      filename: encodeURIComponent("报告.pdf"),
+    });
+    assert.equal(document.status, 201);
 
     const noType = await routeBus({
       method: "PUT",
