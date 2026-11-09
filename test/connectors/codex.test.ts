@@ -399,7 +399,7 @@ function buildFixture(): Fixture {
   insertThread.run("t1", projectPath, null, "Fix login", "hello", now - 3_600_000, now - 600_000, 0, "cli", "gpt-5.1", "high");
   insertThread.run("t2", projectPath, "Bad model", null, null, now - 3_600_000, now - 700_000, 0, "cli", "-bad", "HIGH");
   insertThread.run("t3", projectPath, "Archived", null, null, now - 3_600_000, now - 800_000, 1, "cli", null, null);
-  insertThread.run("t4", projectPath, "Old", null, null, now - 3_600_000, now - 8 * 24 * 3600_000, 0, "cli", null, null);
+  insertThread.run("t4", projectPath, "Old", null, null, now - 3_600_000, now - 400 * 24 * 3600_000, 0, "cli", null, null);
   insertThread.run("t5", projectPath, "Subagent", null, null, now - 3_600_000, now - 900_000, 0, "{%sub}", null, null);
   state.prepare("INSERT INTO projects VALUES (?, ?, ?)").run("p1", "Demo", now - 1000);
   state.prepare("INSERT INTO project_roots VALUES (?, ?, ?)").run("p1", 0, projectPath);

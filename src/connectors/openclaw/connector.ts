@@ -26,6 +26,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { BusPendingRequest, BusProject, BusTask } from "../../bus/store.js";
+import { SESSION_HISTORY_WINDOW_MS } from "../session-window.js";
 import {
   ConnectorError,
   rejectSelection,
@@ -155,7 +156,7 @@ const PENDING_SUMMARY_LIMIT = 300;
 const TITLE_LIMIT = 80;
 const LAST_MESSAGE_LIMIT = 500;
 const DETAIL_LIMIT = 2000;
-const RECENT_WINDOW_MS = 7 * 24 * 3600 * 1000;
+const RECENT_WINDOW_MS = SESSION_HISTORY_WINDOW_MS;
 const IDLE_AFTER_MS = 24 * 3600 * 1000;
 
 const LIST_PARAMS = {
@@ -480,7 +481,7 @@ export class OpenClawConnector implements TaskConnector {
         await this.bootstrap(gateway);
         await this.report("ok", null);
         backoff = this.timing.initialBackoff;
-        // 首屏是基线：7 天内的完成 / 失败会话都在里面，逐条推送等于把一串私聊预览
+        // 首屏是基线：窗口内的完成 / 失败会话都在里面，逐条推送等于把一串私聊预览
         // 一次性发到手机上。
         this.publish(true);
         // 握手与首屏期间到达的事件都攒在流里，这里按序补上，再接着实时消费。
@@ -594,7 +595,7 @@ export class OpenClawConnector implements TaskConnector {
         if (key === undefined) return;
         const session = this.sessions.get(key);
         if (!session) {
-          // 列表里还没有（新会话、或超出 7 天窗口的老会话又动了）：让列表去收敛。
+          // 列表里还没有（新会话、或超出窗口的老会话又动了）：让列表去收敛。
           this.scheduleRefresh();
           return;
         }
@@ -692,7 +693,7 @@ export class OpenClawConnector implements TaskConnector {
 
   // MARK: - 会话映射
 
-  /** 用一份完整列表替换会话集合：7 天内、最多 200 条。行里没带最后一条消息时沿用旧值。 */
+  /** 用一份完整列表替换会话集合：窗口内、最多 200 条。行里没带最后一条消息时沿用旧值。 */
   private applyList(payload: unknown): void {
     const current = this.now();
     const cutoff = current.getTime() - RECENT_WINDOW_MS;

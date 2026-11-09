@@ -14,7 +14,7 @@ import { defaultSupportDirectory } from "./local-hook-server.js";
  *
  * `autoStart`（默认 true）在构造后拉起 Claude 的宿主服务：已装 hooks 才
  * `upgradeIfNeeded` 补齐新事件（没装过不安装）、起 hook server（默认支持目录 +
- * 共享密钥）、补回 7 天内的会话、开 presence sweep 与收尾检测。启动是异步的，
+ * 共享密钥）、补回窗口内的历史会话、开 presence sweep 与收尾检测。启动是异步的，
  * 失败记在 connector 的 `hostServicesState` / `hostServicesError` 里；
  * `whenHostServicesReady()` 可等它跑完。`autoStart:false` 保持纯被动后端。
  *

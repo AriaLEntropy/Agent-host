@@ -3,6 +3,7 @@
 
 import { closeSync, fstatSync, openSync, readSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { SESSION_HISTORY_WINDOW_MS } from "../session-window.js";
 import { ClaudeModels } from "./claude-models.js";
 import { narrationText, stripInjectedBlocks } from "./claude-message-reader.js";
 import {
@@ -33,7 +34,7 @@ export type ClaudeTurnEnding =
   | { kind: "interrupted"; at: number }
   | { kind: "completed"; at: number };
 
-const RECENT_WINDOW_MS = 7 * 24 * 3600 * 1000;
+const RECENT_WINDOW_MS = SESSION_HISTORY_WINDOW_MS;
 const IDLE_AFTER_MS = 24 * 3600 * 1000;
 
 /**
@@ -47,12 +48,12 @@ export const ClaudeSessionHistory = {
   headBytes: 64 * 1024,
   tailBytes: 256 * 1024,
   excludedEntrypoints: new Set(["sdk-py", "sdk-ts"]),
-  /** 7 天窗口（SessionFormatting.recentWindow）。 */
+  /** 会话回溯窗口；一年，列表靠条数收敛 */
   recentWindowMs: RECENT_WINDOW_MS,
   /** 超过 24 小时没动静记 idle（SessionFormatting.idleAfter）。 */
   idleAfterMs: IDLE_AFTER_MS,
 
-  /** 7 天内被写过的会话，最新的在前，最多 `limit` 条。 */
+  /** 窗口内被写过的会话，最新的在前，最多 `limit` 条。 */
   recentSessions(
     projectsDirectory: string,
     now: number,

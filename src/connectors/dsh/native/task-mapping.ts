@@ -5,6 +5,7 @@
 // 不碰 IO，`DshConnector` 的对账与实时发布都走这里。
 
 import type { BusPendingRequest, BusProject, BusTask } from "../../../bus/store.js";
+import { SESSION_HISTORY_WINDOW_MS } from "../../session-window.js";
 import type { DshSessionSummary } from "./session-scanner.js";
 import {
   eventSourceKind,
@@ -50,7 +51,7 @@ export function protocolTimestamp(date: Date = new Date()): string {
 }
 
 export const SessionFormatting = {
-  recentWindow: 7 * 24 * 3600 * 1000,
+  recentWindow: SESSION_HISTORY_WINDOW_MS,
   idleAfter: 24 * 3600 * 1000,
   titleLimit: 80,
   lastMessageLimit: 500,
@@ -305,7 +306,7 @@ export const DshTaskMapping = {
 
   /**
    * `.dsh` 的全量对账列表：
-   * - 底子是 web 列表（连着时）或扫盘结果，只要 7 天窗口里的；
+   * - 底子是 web 列表（连着时）或扫盘结果，只要回溯窗口里的；
    * - 同一个会话在 `acp` 里也有时，来源与标题以它为准，状态与最后一条消息取两边更新的那一份；
    * - `controllable` 统一按"现在有没有路可走"。
    */

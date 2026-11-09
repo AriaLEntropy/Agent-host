@@ -132,7 +132,7 @@ export class CodexObserver {
       const result = source.readSnapshot(agentId);
       this.reconcile(result.tasks, result.projects);
       this.consecutiveFailures = 0;
-      this.report(`Codex：${result.tasks.length} 个任务（7 天内）`);
+      this.report(`Codex：${result.tasks.length} 个任务`);
     } catch (error) {
       this.consecutiveFailures += 1;
       console.error(`[codexobserver] codex poll failed (${this.consecutiveFailures}): ${String(error)}`);

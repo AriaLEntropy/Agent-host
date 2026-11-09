@@ -6,6 +6,7 @@
 import { readFileSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { SESSION_HISTORY_WINDOW_MS } from "../../session-window.js";
 import { DshSessionFiles } from "./transcript.js";
 import {
   boolValue,
@@ -71,7 +72,7 @@ export class DshSessionScanner {
         if (!logFile) continue;
         const info = await safeStat(logFile);
         if (!info) continue;
-        if (current.getTime() - info.mtimeMs > 7 * 24 * 3600 * 1000) continue;
+        if (current.getTime() - info.mtimeMs > SESSION_HISTORY_WINDOW_MS) continue;
         const sessionId = decodeSegment(basename(directory));
         if (!sessionId) continue;
         found.push({ sessionId, directory, logFile, modified: info.mtimeMs });

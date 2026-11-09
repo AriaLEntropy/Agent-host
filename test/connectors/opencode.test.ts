@@ -143,7 +143,7 @@ describe("opencode scan", () => {
         { id: "s-idle-old", directory: "E:/work/old", title: null, created: nowMs - 4 * DAY, updated: nowMs - 2 * DAY },
         { id: "s-archived", directory: "E:/work/demo", title: "archived", created: nowMs - DAY, updated: nowMs - 60_000, archived: nowMs - 30_000 },
         { id: "s-child", parentId: "s-running", directory: "E:/work/demo", title: "child", created: nowMs - DAY, updated: nowMs - 60_000 },
-        { id: "s-stale", directory: "E:/work/demo", title: "stale", created: nowMs - 30 * DAY, updated: nowMs - 8 * DAY },
+        { id: "s-stale", directory: "E:/work/demo", title: "stale", created: nowMs - 500 * DAY, updated: nowMs - 400 * DAY },
       ],
       [
         { id: "m-running", sessionId: "s-running", time: nowMs - 60_000, data: assistant({ time: { created: nowMs - 60_000 } }) },

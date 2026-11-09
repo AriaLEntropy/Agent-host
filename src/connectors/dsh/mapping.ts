@@ -1,9 +1,10 @@
 import { basename } from "node:path";
 import type { BusMessage, BusTask } from "../../bus/store.js";
+import { SESSION_HISTORY_WINDOW_MS } from "../session-window.js";
 import type { DshPage, DshSessionEvent, DshWebSessionSummary } from "./web.js";
 import { eventSourceKind, eventText, eventTitle } from "./web.js";
 
-const RECENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const RECENT_WINDOW_MS = SESSION_HISTORY_WINDOW_MS;
 const IDLE_AFTER_MS = 24 * 60 * 60 * 1000;
 const MAX_TASK_TITLE = 80;
 

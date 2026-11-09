@@ -234,7 +234,7 @@ describe("dsh runtime integration", { concurrency: false }, () => {
       },
     });
     assert.equal(started.ok, false);
-    assert.match(started.error ?? "", /^图片已过期或不存在：/);
+    assert.match(started.error ?? "", /^附件已过期或不存在：/);
     assert.equal(calls.some((call) => call.method === "start"), false);
   });
 

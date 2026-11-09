@@ -4,7 +4,7 @@
 // OpenCode 是 **ACP 驱动**的 agent（`kind = acp` + `connectorId = opencode`），
 // 这里只做只读的那一半：
 // - `entries` / `readEntries`：从 `~/.local/share/opencode/opencode.db` 读对话记录；
-// - `scan` / `tasks`：给 ACP 对账用的 7 天会话快照。
+// - `scan` / `tasks`：给 ACP 对账用的会话快照。
 // 启动、续聊、审批、中断等控制命令一律走 ACP 主干，本文件不实现。
 //
 // 与上游的差别（都已按移植规则尽量缩小）：
@@ -24,6 +24,7 @@ import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { BusTask } from "../../bus/store.js";
+import { SESSION_HISTORY_WINDOW_MS } from "../session-window.js";
 import {
   ConnectorError,
   MAX_USER_MESSAGES,
@@ -36,8 +37,8 @@ import {
   type TranscriptEntry,
 } from "../ported/contract.js";
 
-/** 与 Kit `SessionObserver` 一致：只看最近 7 天。 */
-export const RECENT_WINDOW_MS = 7 * 24 * 3600 * 1000;
+/** 会话回溯窗口；一年，最多仍只读 `MAX_SESSIONS` 条 */
+export const RECENT_WINDOW_MS = SESSION_HISTORY_WINDOW_MS;
 /** 与 Kit `SessionObserver` 一致：超过 24 小时没动静算 `idle`。 */
 export const IDLE_AFTER_MS = 24 * 3600 * 1000;
 /** 与 Kit `SessionFormatting.lastMessageLimit` 一致。 */
@@ -193,7 +194,7 @@ export class OpenCodeSessionReader implements MessageReader {
   }
 
   /**
-   * 7 天内更新过、没归档、不是子会话的会话，按更新时间降序最多 200 条。
+   * 窗口内更新过、没归档、不是子会话的会话，按更新时间降序最多 200 条。
    *
    * 状态规则照抄上游：先按 24 小时判 idle / completed；最后一条消息是 assistant
    * 时再看 `error`（MessageAbortedError → interrupted，其余 → failed）和

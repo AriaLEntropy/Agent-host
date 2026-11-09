@@ -15,11 +15,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { BusProject, BusTask } from "../../bus/store.js";
+import { SESSION_HISTORY_WINDOW_MS } from "../session-window.js";
 import { imageFromDataUrl, type ImageSource } from "../ported/contract.js";
 import { HermesToolCalls } from "./message-reader.js";
 import type { HermesPaths } from "./paths.js";
 
-export const RECENT_WINDOW_SECONDS = 7 * 24 * 3600;
+export const RECENT_WINDOW_SECONDS = SESSION_HISTORY_WINDOW_MS / 1000;
 export const IDLE_AFTER_SECONDS = 24 * 3600;
 export const TITLE_LIMIT = 80;
 export const LAST_MESSAGE_LIMIT = 500;
@@ -192,7 +193,7 @@ export type HermesStateReaderOptions = {
 /**
  * 只读地把 `state.db` 映射成协议模型。
  *
- * 7 天内有活动、没归档/隐藏、不是被压缩掉的旧会话，活动时间降序，最多 200 条。
+ * 回溯窗口内有活动、没归档/隐藏、不是被压缩掉的旧会话，活动时间降序，最多 200 条。
  * 没有 `cwd` 的会话归到 `fallbackDirectory`。库不存在抛 `HermesSourceUnavailable`；
  * 缺表、忙锁照常抛错。
  */

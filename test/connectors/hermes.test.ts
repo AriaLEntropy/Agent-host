@@ -166,9 +166,9 @@ function modernDatabase(path: string): void {
         id: "old",
         cwd: "E:/work/demo",
         title: "Old",
-        started_at: nowSeconds - 10 * day,
-        ended_at: nowSeconds - 10 * day,
-        last_activity_at: nowSeconds - 10 * day,
+        started_at: nowSeconds - 400 * day,
+        ended_at: nowSeconds - 400 * day,
+        last_activity_at: nowSeconds - 400 * day,
         end_reason: null,
       });
       insertSession(database, {

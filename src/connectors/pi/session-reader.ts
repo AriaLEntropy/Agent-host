@@ -19,8 +19,9 @@ import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type { BusProject, BusTask } from "../../bus/store.js";
+import { SESSION_HISTORY_WINDOW_MS } from "../session-window.js";
 
-export const PI_RECENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+export const PI_RECENT_WINDOW_MS = SESSION_HISTORY_WINDOW_MS;
 export const PI_IDLE_AFTER_MS = 24 * 60 * 60 * 1000;
 export const PI_RUNNING_WINDOW_MS = 120 * 1000;
 export const PI_MAX_TASKS = 200;
@@ -562,7 +563,7 @@ export class PiSessionReader {
   }
 
   /**
-   * 7 天内被写过的会话文件，最新的在前，最多 `maxTasks` 个。
+   * 回溯窗口内被写过的会话文件，最新的在前，最多 `maxTasks` 个。
    * 会话目录不存在抛 `SessionSourceUnavailable`——那是"读不到"，不是"没有任务"。
    */
   async recentFiles(): Promise<PiFileInfo[]> {
@@ -603,7 +604,7 @@ export class PiSessionReader {
 
   /**
    * 某个 sessionId 的记录文件。文件名是 `<时间戳>_<sessionId>.jsonl`，按后缀在各项目目录里扫；
-   * 连接器续聊（`--session <路径>`）与读对话记录都靠它，不依赖 7 天窗口。
+   * 连接器续聊（`--session <路径>`）与读对话记录都靠它，不依赖回溯窗口。
    */
   async sessionFile(sessionID: string): Promise<string | null> {
     return PiSessionReader.sessionFileIn(sessionID, piSessionsDirectory(this.paths));
@@ -624,7 +625,7 @@ export class PiSessionReader {
     return null;
   }
 
-  /** 7 天内的会话 → BusTask。`summarize` 可注入缓存；默认每次整份重读。 */
+  /** 窗口内的会话 → BusTask。`summarize` 可注入缓存；默认每次整份重读。 */
   async readTasks(
     agentId: string,
     summarize: PiSummarize = (file) => PiSessionReader.summarize(file.url),

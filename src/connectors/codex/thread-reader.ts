@@ -7,6 +7,7 @@ import { existsSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { BusProject, BusTask } from "../../bus/store.js";
+import { SESSION_HISTORY_WINDOW_MS } from "../session-window.js";
 import type { TaskStatus } from "./app-server-messages.js";
 import type { CodexPaths } from "./paths.js";
 
@@ -150,7 +151,7 @@ export type ModelOption = {
 
 const MAX_TITLE = 80;
 const MAX_MESSAGE = 500;
-const ACTIVITY_WINDOW_MS = 7 * 24 * 3600 * 1000;
+const ACTIVITY_WINDOW_MS = SESSION_HISTORY_WINDOW_MS;
 const IDLE_AFTER_MS = 24 * 3600 * 1000;
 const MAX_TASKS = 200;
 
@@ -195,7 +196,7 @@ export class CodexThreadReader {
   }
 
   /**
-   * 最近 7 天、未归档、非 subagent 的线程，按 updated_at_ms 降序，最多 200 条。
+   * 回溯窗口内、未归档、非 subagent 的线程，按 updated_at_ms 降序，最多 200 条。
    * 任一库缺表（schema 漂移）或忙锁都抛错让整次轮询失败，由调用方按连续失败次数报警。
    */
   readTasks(agentId: string): BusTask[] {

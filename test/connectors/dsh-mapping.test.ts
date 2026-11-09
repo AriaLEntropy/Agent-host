@@ -41,7 +41,7 @@ describe("dsh task mapping", () => {
     assert.equal(summaryToTask(summary({ origin: "subagent" }), "a", now), null);
     assert.equal(summaryToTask(summary({ cwd: undefined }), "a", now), null);
     assert.equal(
-      summaryToTask(summary({ updatedAt: new Date(now - 8 * 24 * 60 * 60 * 1000) }), "a", now),
+      summaryToTask(summary({ updatedAt: new Date(now - 400 * 24 * 60 * 60 * 1000) }), "a", now),
       null,
     );
   });

@@ -590,7 +590,7 @@ describe("claude session history", () => {
       ], NOW - 3 * 60 * 60 * 1000);
       writeTranscript(projects, "old", [
         { type: "user", cwd: "E:/work/demo", entrypoint: "sdk-cli", message: { content: "too old" } },
-      ], NOW - 8 * 24 * 60 * 60 * 1000);
+      ], NOW - 400 * 24 * 60 * 60 * 1000);
 
       const entries = ClaudeSessionHistory.recentSessions(projects, NOW, 200);
       assert.deepEqual(entries.map((entry) => entry.sessionID), ["s1"]);

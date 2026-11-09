@@ -1,12 +1,13 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { zstdDecompressSync } from "node:zlib";
+import { SESSION_HISTORY_WINDOW_MS } from "../session-window.js";
 import type { DshPaths } from "./paths.js";
 import { projectionCacheFile } from "./paths.js";
 import type { DshSessionEvent, DshWebSessionSummary } from "./web.js";
 import { eventFromJson, eventSourceKind, eventText, eventTitle } from "./web.js";
 
-const RECENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const RECENT_WINDOW_MS = SESSION_HISTORY_WINDOW_MS;
 const OPEN_TURN_WINDOW_MS = 5 * 60 * 1000;
 const MAX_SESSIONS = 200;
 const MAX_TAIL_BYTES = 4 * 1024 * 1024;

@@ -718,7 +718,7 @@ export class ClaudeConnector implements TaskConnector {
   // 启动补历史
   // -------------------------------------------------------------------------
 
-  /** 把 `~/.claude/projects` 里 7 天内的会话补进来。连接器每次启动调一次。 */
+  /** 把 `~/.claude/projects` 里回溯窗口内的会话补进来。连接器每次启动调一次。 */
   async restoreRecentSessions(): Promise<void> {
     const current = this.now();
     // PORT: Swift 用 Task.detached 把扫描挪到后台线程；Node 主线程无法把同步 fs
@@ -745,7 +745,10 @@ export class ClaudeConnector implements TaskConnector {
         if (account) this.desktopRecorded.set(entry.sessionID, account);
       }
       this.pruneIfNeeded();
+      // 补历史是静默基线，不逐条推 taskUpdated；补完给手机一份全量快照，
+      // 已经连着的手机不用等重连才看见这些会话
       await this.publish(false);
+      this.options.broadcastSnapshot?.();
     } finally {
       this.startPresenceSweep();
     }
