@@ -41,6 +41,7 @@ import {
   DshLiveState,
   SessionFormatting,
   applyEvents,
+  approvalWaterfallFromEvent,
   factsFromScanned,
   factsFromWeb,
   liveStateEqual,
@@ -1103,10 +1104,20 @@ export class DshConnector implements TaskConnector, MessageReader {
         decided = applyEvents(state, frame.events);
         // snapshot 里最后一轮还开着才算在跑；web 说在跑的以 web 为准。
         state.running = DshTranscriptParser.hasOpenTurn(frame.events) || this.webRunning.has(sessionId);
+        {
+          // 0.2.x 的审批在事件里；快照里还没 decided 的那条要变成待审批。
+          const approval = [...frame.events]
+            .reverse()
+            .map((event) => approvalWaterfallFromEvent(sessionId, event))
+            .find((item) => item !== undefined && state.approvals.has(item.eventId));
+          if (approval) this.pending.set(sessionId, approval);
+        }
         break;
       case "event": {
         const call = state.apply(frame.event);
         if (call !== undefined) decided = [call];
+        const approval = approvalWaterfallFromEvent(sessionId, frame.event);
+        if (approval && state.approvals.has(approval.eventId)) this.pending.set(sessionId, approval);
         break;
       }
       default:

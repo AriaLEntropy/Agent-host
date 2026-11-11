@@ -74,6 +74,7 @@ export {
   DshTaskMapping,
   SessionFormatting,
   applyEvents,
+  approvalWaterfallFromEvent,
   factsFromScanned,
   factsFromWeb,
   liveStateEqual,

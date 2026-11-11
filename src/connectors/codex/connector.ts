@@ -1093,7 +1093,11 @@ export class CodexConnector implements TaskConnector {
       }
       return;
     }
-    const threadId = notificationThreadId(notification);
+    let threadId = notificationThreadId(notification);
+    // `error` 帧不带 threadId：归到最近还在跑的那条线程，别把失败原因丢掉。
+    if (threadId === undefined && notification.type === "serverError") {
+      threadId = this.activeThreadId();
+    }
     if (threadId === undefined) return;
     if (!this.threads.has(threadId) && this.sharedDesktop) {
       // Desktop turns on the shared upstream are also actionable on the phone.
@@ -1161,6 +1165,11 @@ export class CodexConnector implements TaskConnector {
       case "itemCompleted":
         this.complete(threadId, notification.item);
         break;
+      case "serverError":
+        this.mutate(threadId, (thread) => {
+          thread.lastMessage = CodexThreadReader.truncate(notification.message, MESSAGE_LIMIT);
+        });
+        break;
       case "other": {
         if (notification.method === "serverRequest/resolved") {
           const raw = jsonPath(notification.params, "requestId");
@@ -1190,8 +1199,12 @@ export class CodexConnector implements TaskConnector {
       this.mutate(threadId, (thread) => {
         thread.diagnosis =
           notification.status.type === "failed" ? diagnosisFromErrorInfo(notification.errorInfo) : undefined;
-        if (notification.status.type === "failed" && notification.error !== undefined && notification.error.length > 0) {
-          thread.lastMessage = CodexThreadReader.truncate(notification.error, MESSAGE_LIMIT);
+        if (notification.status.type === "failed") {
+          if (notification.error !== undefined && notification.error.length > 0) {
+            thread.lastMessage = CodexThreadReader.truncate(notification.error, MESSAGE_LIMIT);
+          } else if (thread.lastMessage === undefined || thread.lastMessage.length === 0) {
+            thread.lastMessage = "Codex 轮次失败";
+          }
         }
       });
     }
@@ -1201,6 +1214,16 @@ export class CodexConnector implements TaskConnector {
       // 轮次结束 = 本连接器不再实时驱动它，交还给只读观察。
       await this.release(threadId);
     }
+  }
+
+  /** `error` 通知不带 threadId 时，归到最近还在跑的那条线程。 */
+  private activeThreadId(): string | undefined {
+    let best: LiveThread | undefined;
+    for (const thread of this.threads.values()) {
+      if (thread.status !== "running" && thread.currentTurnId === undefined) continue;
+      if (!best || thread.updatedAt >= best.updatedAt) best = thread;
+    }
+    return best?.threadId;
   }
 
   private async applyServerRequest(request: CodexServerRequest): Promise<void> {

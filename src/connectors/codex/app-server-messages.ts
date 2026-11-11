@@ -135,7 +135,7 @@ export type CodexNotification =
   | { type: "agentMessageDelta"; threadId: string; itemId: string; delta: string }
   | { type: "itemStarted"; threadId: string; turnId?: string; item: CodexItem }
   | { type: "itemCompleted"; threadId: string; turnId?: string; item: CodexItem }
-  | { type: "serverError"; message: string }
+  | { type: "serverError"; message: string; threadId?: string }
   | { type: "other"; method: string; params: JSONValue };
 
 function errorText(value: JSONValue | undefined): string | undefined {
@@ -234,8 +234,15 @@ export function codexNotification(method: string, params: JSONValue): CodexNotif
       }
       break;
     }
-    case "error":
-      return { type: "serverError", message: jsonString(jsonPath(params, "message")) ?? "app-server 报错" };
+    case "error": {
+      // app-server 的错误帧通常带 threadId；没有时由连接器归到当前在跑的线程。
+      const threadId = jsonString(jsonPath(params, "threadId"));
+      return {
+        type: "serverError",
+        message: jsonString(jsonPath(params, "message")) ?? "app-server 报错",
+        ...(threadId === undefined ? {} : { threadId }),
+      };
+    }
     default:
       break;
   }
@@ -277,7 +284,7 @@ export function notificationThreadId(notification: CodexNotification): string | 
     case "itemCompleted":
       return notification.threadId;
     case "serverError":
-      return undefined;
+      return notification.threadId;
     case "other":
       return jsonString(jsonPath(notification.params, "threadId"));
   }

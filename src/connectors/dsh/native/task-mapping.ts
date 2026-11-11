@@ -162,6 +162,30 @@ export function toolCallCommand(call: DshToolCall): string | undefined {
   return command.trim().length === 0 ? undefined : command;
 }
 
+/**
+ * DSH 0.2.x 把审批从 `waterfall` 改成了会话事件 `approval/asked`。
+ * 形状：`{ id, toolName, callId, reason }`；`id` 就是回答时要带回的 eventId。
+ */
+export function approvalWaterfallFromEvent(
+  sessionId: string,
+  event: DshSessionEvent,
+): DshWaterfall | undefined {
+  if (event.type !== "approval/asked") return undefined;
+  const data = record(event.data);
+  const eventId = stringValue(data.id);
+  if (!eventId) return undefined;
+  return {
+    eventId,
+    sessionId,
+    request: {
+      type: "approval",
+      toolName: stringValue(data.toolName),
+      callId: stringValue(data.callId),
+      reason: stringValue(data.reason),
+    },
+  };
+}
+
 /** follow 流（`session/follow` 的 snapshot 与之后的 event）累积出来的实时状态。 */
 export class DshLiveState {
   static readonly maxTools = 64;

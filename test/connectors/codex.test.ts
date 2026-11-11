@@ -158,6 +158,19 @@ describe("codex app-server messages", { concurrency: false }, () => {
     assert.equal(notificationStatusTransition(unknown), undefined);
   });
 
+  test("keeps the thread id on error notifications", () => {
+    const error = codexNotification("error", { threadId: "t", message: "502 Bad Gateway" });
+    assert.equal(error.type, "serverError");
+    if (error.type === "serverError") {
+      assert.equal(error.threadId, "t");
+      assert.equal(error.message, "502 Bad Gateway");
+    }
+
+    const bare = codexNotification("error", { message: "boom" });
+    assert.equal(bare.type, "serverError");
+    if (bare.type === "serverError") assert.equal(bare.threadId, undefined);
+  });
+
   test("parses server requests, approval kinds and cached diffs", () => {
     const request = new CodexServerRequest(
       { kind: "text", value: "srv-1" },

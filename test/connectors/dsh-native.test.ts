@@ -16,6 +16,7 @@ import {
   DshSessionFiles,
   DshSessionScanner,
   DshTaskMapping,
+  approvalWaterfallFromEvent,
   DshTranscriptDecoder,
   DshTranscriptParser,
   eventsFrameFromJson,
@@ -107,6 +108,25 @@ describe("dsh native task mapping", () => {
     assert.equal(mapped.request.kind, "command");
     assert.match(mapped.request.summary, /执行命令：ls -la/);
     assert.equal(mapped.request.detail, "list files");
+  });
+
+  test("turns a 0.2.x approval/asked event into a pending approval", () => {
+    const live = new DshLiveState();
+    const ask = event("approval/asked", 2, {
+      id: "a1",
+      toolName: "write",
+      callId: "c2",
+      reason: "outside workspace",
+    });
+    live.apply(ask);
+    const waterfall = approvalWaterfallFromEvent("s1", ask);
+    assert.ok(waterfall);
+    const mapped = DshTaskMapping.pendingRequest(waterfall, live);
+    assert.ok(mapped);
+    assert.equal(mapped.status, "waitingApproval");
+    assert.equal(mapped.request.id, "a1");
+    assert.equal(mapped.request.kind, "permission");
+    assert.match(mapped.request.summary, /outside workspace/);
   });
 
   test("maps questions and phone answers", () => {

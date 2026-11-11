@@ -735,7 +735,10 @@ export class ClaudeConnector implements TaskConnector {
     }
     try {
       const adopted = entries.filter(
-        (entry) => !this.desktopArchived.has(entry.sessionID) && !this.superseded.has(entry.sessionID),
+        (entry) =>
+          entry.usable &&
+          !this.desktopArchived.has(entry.sessionID) &&
+          !this.superseded.has(entry.sessionID),
       );
       if (adopted.length === 0) return;
       for (const entry of adopted) {

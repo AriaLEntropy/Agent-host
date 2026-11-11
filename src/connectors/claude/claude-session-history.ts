@@ -28,7 +28,18 @@ export type ClaudeSessionEntry = {
   model: string | null;
   startedAt: number;
   updatedAt: number;
+  /** 只有登录失败、没有任何有效 assistant 回复的会话不补进列表。 */
+  usable: boolean;
 };
+
+/**
+ * Claude Code 没拿到 API/登录信息时的固定回复。
+ * 这类会话通常只有用户一句话和这句错误，补进手机列表只会制造噪音。
+ */
+export function isLoginFailureText(text: string | null | undefined): boolean {
+  if (!text) return false;
+  return /not logged in/i.test(text) && /\/login/i.test(text);
+}
 
 export type ClaudeTurnEnding =
   | { kind: "interrupted"; at: number }
@@ -94,7 +105,7 @@ export const ClaudeSessionHistory = {
     for (const candidate of candidates) {
       if (entries.length >= limit) break;
       const entry = ClaudeSessionHistory.summarizeFile(candidate.url, candidate.size, candidate.modifiedAt);
-      if (entry) entries.push(entry);
+      if (entry && entry.usable) entries.push(entry);
     }
     return entries;
   },
@@ -155,6 +166,8 @@ export const ClaudeSessionHistory = {
     let firstPrompt: string | null = null;
     let lastPrompt: string | null = null;
     let lastAssistant: string | null = null;
+    let sawAssistant = false;
+    let sawUsableAssistant = false;
     let model: string | null = null;
     let startedAt: number | null = null;
 
@@ -197,7 +210,11 @@ export const ClaudeSessionHistory = {
         }
         case "assistant": {
           const text = assistantText(object, narrationText);
-          if (text !== null) lastAssistant = text;
+          if (text !== null) {
+            lastAssistant = text;
+            sawAssistant = true;
+            if (!isLoginFailureText(text)) sawUsableAssistant = true;
+          }
           const message = recordValue(object.message);
           if (typeof message.model === "string" && ClaudeModels.optionId(message.model) !== null) {
             model = message.model;
@@ -242,6 +259,7 @@ export const ClaudeSessionHistory = {
       model,
       startedAt: Math.min(startedAt ?? modifiedAt, modifiedAt),
       updatedAt: modifiedAt,
+      usable: !sawAssistant || sawUsableAssistant,
     };
   },
 

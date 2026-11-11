@@ -604,6 +604,46 @@ describe("claude session history", () => {
     }
   });
 
+  test("skips sessions whose only assistant text is a login failure", () => {
+    const home = temporary("agent-host-claude-login-");
+    try {
+      const projects = join(home, "projects");
+      writeTranscript(projects, "login-only", [
+        {
+          type: "user",
+          cwd: "E:/work/demo",
+          entrypoint: "sdk-cli",
+          timestamp: "2026-10-31T04:40:15.000Z",
+          message: { content: "hello" },
+        },
+        {
+          type: "assistant",
+          timestamp: "2026-10-31T04:40:16.000Z",
+          message: { content: [{ type: "text", text: "Not logged in · Please run /login" }] },
+        },
+      ], NOW - 60 * 60 * 1000);
+      writeTranscript(projects, "usable", [
+        {
+          type: "user",
+          cwd: "E:/work/demo",
+          entrypoint: "sdk-cli",
+          timestamp: "2026-10-31T04:40:15.000Z",
+          message: { content: "hello" },
+        },
+        {
+          type: "assistant",
+          timestamp: "2026-10-31T04:40:16.000Z",
+          message: { content: [{ type: "text", text: "real answer" }] },
+        },
+      ], NOW - 60 * 60 * 1000);
+
+      const entries = ClaudeSessionHistory.recentSessions(projects, NOW, 200);
+      assert.deepEqual(entries.map((entry) => entry.sessionID), ["usable"]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("detects the turn-ending marker and stop_hook_summary", () => {
     const home = temporary("agent-host-claude-ending-");
     try {
