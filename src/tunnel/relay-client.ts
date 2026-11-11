@@ -53,6 +53,8 @@ export type RelayClientOptions = {
   probeDsh?: (port: number) => Promise<boolean>;
   /** Fired once when Relay rejects the host credential (close code 4003). */
   onAuthRejected?: (detail: string) => void;
+  /** 手机端解散整组后，通知 Host 清掉本机配对（Relay 已吊销全部凭据）。 */
+  onGroupRevoked?: () => void;
 };
 
 /**
@@ -557,6 +559,8 @@ export class RelayClient {
         body: Buffer.from(msg.payload.bodyB64 ?? "", "base64"),
         contentType: headerValue(msg.payload.headers, "content-type"),
         filename: headerValue(msg.payload.headers, "x-bus-filename"),
+        hostConfig: this.config,
+        onGroupRevoked: this.options.onGroupRevoked,
       });
     } catch {
       // routeBus 自己会把产物 I/O 错误折成 JSON；这里只兜住意外异常，

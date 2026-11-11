@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld("agentbusSettings", {
   copyProblems: () => ipcRenderer.send("settings:copy-problems"),
   repair: () => ipcRenderer.send("settings:repair"),
   unpair: () => ipcRenderer.invoke("settings:unpair"),
+  listDevices: () => ipcRenderer.invoke("settings:devices"),
+  removeDevice: (clientId) => ipcRenderer.invoke("settings:remove-device", clientId),
   chooseProjectRoot: () => ipcRenderer.invoke("settings:choose-project-root"),
   setAllowProjects: (allow) => ipcRenderer.invoke("settings:set-allow-projects", allow),
   setStartup: (enabled) => ipcRenderer.invoke("settings:set-startup", enabled),

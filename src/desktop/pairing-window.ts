@@ -17,8 +17,9 @@ type PairingWindowView =
       link: string;
       qrSvg: string;
       expiresAt: number;
+      addDevice: boolean;
     }
-  | { mode: "result"; theme: string; result: "wait" | "ok" | "expired" | "rejected" | "network"; error?: string };
+  | { mode: "result"; theme: string; result: "wait" | "ok" | "expired" | "rejected" | "network"; error?: string; addDevice?: boolean };
 
 /**
  * 配对窗口
@@ -123,7 +124,8 @@ export class PairingWindow {
     const generation = ++this.generation;
     this.controller.cancelPairing();
     try {
-      const start = await this.controller.beginPairing();
+      const addDevice = this.controller.status().paired;
+      const start = await this.controller.beginPairing(addDevice);
       if (generation !== this.generation) {
         this.controller.cancelPairing();
         return;
@@ -137,11 +139,12 @@ export class PairingWindow {
         link: start.link,
         qrSvg: qr.createSvgTag({ cellSize: 4, margin: 2 }),
         expiresAt: start.expiresAt,
+        addDevice,
       });
       const result = await start.result;
       if (generation !== this.generation) return;
       if (result.ok) {
-        this.push({ mode: "result", theme: this.theme(), result: "ok" });
+        this.push({ mode: "result", theme: this.theme(), result: "ok", addDevice });
         setTimeout(() => {
           if (generation === this.generation) this.close();
         }, 1500);

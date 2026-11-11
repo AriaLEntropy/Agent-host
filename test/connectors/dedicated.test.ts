@@ -607,4 +607,36 @@ describe("dedicated discovery", { concurrency: false }, () => {
     }
     assert.equal(new Set(found.agents.map((agent) => agent.id)).size, found.agents.length);
   });
+
+  test("a second phone approving an already handled request is not an error", async () => {
+    reset();
+    installFake("hermes", [], []);
+    useAgents([specFor("hermes")]);
+    let approvals = 0;
+    setDedicatedFactories({
+      connectors: {
+        hermes: () => ({
+          ...fakeConnector("hermes", []),
+          async approve() {
+            approvals += 1;
+            if (approvals === 1) return { taskId: "hermes:native-1", retainsLiveOwnership: true };
+            throw new Error("没有待审批的请求（可能已经处理过了）");
+          },
+        }),
+      },
+    });
+    const command = {
+      kind: "approve" as const,
+      approve: {
+        taskId: "hermes:native-1",
+        requestId: "req-1",
+        decision: "allow" as const,
+      },
+    };
+    const first = await executeCommand({ id: "approve-first", ...command });
+    assert.equal(first.ok, true, first.error);
+    const second = await executeCommand({ id: "approve-second", ...command });
+    assert.equal(second.ok, true, second.error);
+    assert.equal(second.taskId, "hermes:native-1");
+  });
 });

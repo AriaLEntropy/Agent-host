@@ -113,7 +113,7 @@ function panelEntries(status: HostStatus): PanelEntry[] {
     ];
   }
   return [
-    { id: "pair", label: status.paired ? "重新配对…" : "配对手机…" },
+    { id: "pair", label: status.paired ? "添加手机…" : "配对手机…" },
     { id: "settings", label: "设置…" },
   ];
 }

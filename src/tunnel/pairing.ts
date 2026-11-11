@@ -3,10 +3,15 @@ import { Config, saveConfig } from "../config.js";
 import { deriveClaimToken, generateMasterKey, hashClaimToken } from "./e2ee.js";
 import { pairingLink, publicRelayOrigin } from "./pair-link.js";
 
-async function post(url: string, data: unknown, signal?: AbortSignal) {
+async function post(
+  url: string,
+  data: unknown,
+  signal?: AbortSignal,
+  headers?: Record<string, string>,
+) {
   const response = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(data),
     signal,
   });
@@ -29,20 +34,52 @@ export type PairingTicket = {
   link: string;
   /** Unix 毫秒时间戳 */
   expiresAt: number;
-  /** 等手机确认；成功后保存配置并返回新配置 */
+  /** true 表示给已配对的 Host 加手机，成功后不改 hostId/hostToken */
+  addDevice: boolean;
+  /** 等手机确认；首次配对时保存配置并返回新配置，加手机时返回原配置 */
   waitForConfirmation: () => Promise<Config>;
   /** 停止等待（服务端会话会自然过期） */
   cancel: () => void;
 };
 
 /** 只创建一次配对会话，不做终端渲染；CLI 与桌面窗口共用 */
-export async function createPairingTicket(config: Config): Promise<PairingTicket> {
-  const masterKey = generateMasterKey();
+export async function createPairingTicket(
+  config: Config,
+  options: { addDevice?: boolean } = {},
+): Promise<PairingTicket> {
+  const addDevice = options.addDevice === true;
+  if (addDevice) {
+    if (!config.hostId || !config.hostToken || !config.e2eeMasterKey) {
+      throw new Error("电脑还没有完成配对，不能添加手机");
+    }
+  }
+  // 加手机复用 Host 的同一把主密钥：隧道握手只认 config.e2eeMasterKey，
+  // 每台手机单独换钥匙需要改 relay→host 的握手协议。
+  const masterKey = addDevice
+    ? (config.e2eeMasterKey as string)
+    : generateMasterKey();
   const claimToken = deriveClaimToken(masterKey);
-  const created = await post(`${config.relay}/pair/session`, {
-    claimTokenHash: hashClaimToken(claimToken),
-    hostName: config.hostName,
-  });
+  const created = addDevice
+    ? await post(
+        `${config.relay}/pair/device-session`,
+        {
+          hostId: config.hostId,
+          claimTokenHash: hashClaimToken(claimToken),
+          hostName: config.hostName,
+        },
+        undefined,
+        { authorization: `Host ${config.hostToken}` },
+      )
+    : await post(`${config.relay}/pair/session`, {
+        claimTokenHash: hashClaimToken(claimToken),
+        hostName: config.hostName,
+      });
+  if (addDevice && created.status === 404) {
+    throw new Error("Relay 版本过旧，不支持添加手机；请先升级 Relay");
+  }
+  if (addDevice && created.status === 401) {
+    throw new Error("Host 凭据无效，请先重新配对这台电脑");
+  }
   if (created.status !== 201) {
     throw new Error(`Relay rejected pairing session (${created.status})`);
   }
@@ -59,6 +96,7 @@ export async function createPairingTicket(config: Config): Promise<PairingTicket
   return {
     link,
     expiresAt,
+    addDevice,
     cancel: () => {
       cancelled = true;
       abortWait?.abort();
@@ -75,6 +113,8 @@ export async function createPairingTicket(config: Config): Promise<PairingTicket
             confirmSecret,
           });
           if (response.status === 200) {
+            // 加手机时 relay 不会再签发 hostToken；配置原样返回
+            if (addDevice) return config;
             const confirmed = response.data as Record<string, any>;
             const next: Config = {
               ...config,

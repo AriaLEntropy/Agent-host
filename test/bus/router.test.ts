@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -370,4 +372,40 @@ describe("bus routes", { concurrency: false }, () => {
     assert.ok(fullest.bytes < frameLimit);
     assert.ok(frameLimit - fullest.bytes < 4096);
   });
+});
+
+test("group revoke unbinds through relay and tells the host to clear pairing", async () => {
+  let authorization = "";
+  const server = createServer((req, res) => {
+    authorization = String(req.headers.authorization ?? "");
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end("{}");
+  });
+  const port = await new Promise<number>((resolve) => {
+    server.once("listening", () => resolve((server.address() as AddressInfo).port));
+    server.listen(0, "127.0.0.1");
+  });
+  try {
+    let revoked = 0;
+    const response = await routeBus({
+      method: "POST",
+      path: "/bus/group/revoke",
+      agentId,
+      hostConfig: {
+        hostName: "Router Test",
+        relay: `http://127.0.0.1:${port}`,
+        dshPort: 1,
+        hostId: "host_router",
+        hostToken: "token_router",
+      },
+      onGroupRevoked: () => {
+        revoked += 1;
+      },
+    });
+    assert.equal(response.status, 200);
+    assert.equal(authorization, "Host token_router");
+    assert.equal(revoked, 1);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });

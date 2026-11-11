@@ -449,6 +449,29 @@ const hostSettings = {
 let manifestProblems: ManifestProblem[] = [];
 const processes = new Map<string, AcpProcess>();
 const sessions = new Map<string, LiveSession>();
+/**
+ * 两台手机同时点同一张审批卡时，后到的一台会看到 pending 已被清掉。
+ * 记一小段时间内“刚刚批过”的 requestId，只对真正的重复请求返回成功。
+ */
+const resolvedApprovals = new Map<string, number>();
+const RESOLVED_APPROVAL_TTL_MS = 10 * 60_000;
+
+function approvalKey(taskId: string, requestId: string): string {
+  return `${taskId}\u0000${requestId}`;
+}
+
+function rememberResolvedApproval(taskId: string, requestId: string): void {
+  const now = Date.now();
+  for (const [key, at] of resolvedApprovals) {
+    if (now - at > RESOLVED_APPROVAL_TTL_MS) resolvedApprovals.delete(key);
+  }
+  resolvedApprovals.set(approvalKey(taskId, requestId), now);
+}
+
+function wasJustApproved(taskId: string, requestId: string): boolean {
+  const at = resolvedApprovals.get(approvalKey(taskId, requestId));
+  return at !== undefined && Date.now() - at <= RESOLVED_APPROVAL_TTL_MS;
+}
 const connectorModels = new Map<string, BusModelOption[]>();
 const connectorModelLookup = new Map<string, Map<string, ModelResolution>>();
 const probedModelAgents = new Set<string>();
@@ -1680,8 +1703,9 @@ async function approve(commandId: string, payload: Record<string, unknown>): Pro
   const requestId = typeof payload.requestId === "string" ? payload.requestId.trim() : "";
   if (!requestId) return done(commandId, false, "requestId is missing");
   const pending = session.state.pending;
-  // 手机可能连点两次，或电脑上已经答过了：只有当前挂着的这一条能批。
+  // 手机可能连点两次，或另一台手机已经答过了。
   if (!pending || pending.request.toolCall.toolCallId !== requestId) {
+    if (wasJustApproved(taskId, requestId)) return done(commandId, true, undefined, taskId);
     return done(commandId, false, "没有待审批的请求（可能已经处理过了）");
   }
   const decision = payload.decision === "deny" ? "deny" : "allow";
@@ -1703,6 +1727,7 @@ async function approve(commandId: string, payload: Record<string, unknown>): Pro
   session.state.clearPending(new Date().toISOString());
   writeSessionRecord(task, session.state);
   process.respond(pending.rpcId, { outcome: { outcome: "selected", optionId } });
+  rememberResolvedApproval(taskId, requestId);
   return done(commandId, true, undefined, taskId);
 }
 
@@ -2345,9 +2370,22 @@ async function dedicatedApprove(
   if (!requestId) return done(commandId, false, "requestId is missing");
   const decision = payload.decision === "deny" ? "deny" : "allow";
   const connector = connectorForSpec(spec!);
-  return runDedicatedOutcome(commandId, taskId, kind, () =>
-    connector.approve(taskId, requestId, decision, answersOf(payload.answers)),
-  );
+  try {
+    const result = await runDedicatedOutcome(commandId, taskId, kind, () =>
+      connector.approve(taskId, requestId, decision, answersOf(payload.answers)),
+    );
+    rememberResolvedApproval(taskId, requestId);
+    return result;
+  } catch (error) {
+    // 另一台手机已经批过：连接器的“没有待审批”按成功处理，避免第二台弹出错误
+    const message = messageOf(error);
+    if (
+      wasJustApproved(taskId, requestId) &&
+      /没有待审批|已经处理过|已失效|already (handled|resolved)/i.test(message)
+    )
+      return done(commandId, true, undefined, taskId);
+    throw error;
+  }
 }
 
 async function dedicatedInterrupt(

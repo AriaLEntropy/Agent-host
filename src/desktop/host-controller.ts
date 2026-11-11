@@ -57,9 +57,19 @@ export type RelayProbeResult = {
   error?: string;
 };
 
+export type ConnectedDevice = {
+  id: string;
+  deviceLabel: string;
+  platform: string;
+  createdAt: number;
+  lastSeenAt: number | null;
+  online: boolean;
+};
+
 export type PairingStart = {
   link: string;
   expiresAt: number;
+  addDevice: boolean;
   result: Promise<{ ok: boolean; error?: string }>;
 };
 
@@ -87,6 +97,9 @@ export class HostController {
       onAuthRejected: () => {
         this.authRejected = true;
         this.emit();
+      },
+      onGroupRevoked: () => {
+        void this.handleGroupRevoked();
       },
     });
     const off = busStore.subscribe(() => this.emit());
@@ -150,6 +163,27 @@ export class HostController {
     return this.running?.config;
   }
 
+  /** 手机端解散整组：Relay 已吊销全部凭据，这里清本机配对并停止 Relay 连接 */
+  private async handleGroupRevoked(): Promise<void> {
+    const config = this.running?.config ?? (await loadConfig());
+    const next: Config = { ...config };
+    delete next.hostId;
+    delete next.hostToken;
+    delete next.e2eeMasterKey;
+    try {
+      await saveConfig(next);
+    } catch {
+      // 清不掉配置也不能继续拿旧 token 重连
+    }
+    this.running?.client?.stop();
+    if (this.running) {
+      this.running.config = next;
+      this.running.client = undefined;
+    }
+    this.authRejected = false;
+    this.emit();
+  }
+
   async unpair(): Promise<{ ok: boolean; error?: string }> {
     const config = this.running?.config ?? (await loadConfig());
     if (config.hostId && config.hostToken) {
@@ -184,6 +218,50 @@ export class HostController {
     this.authRejected = false;
     this.emit();
     return { ok: true };
+  }
+
+  async listDevices(): Promise<{
+    ok: boolean;
+    devices?: ConnectedDevice[];
+    error?: string;
+  }> {
+    const config = this.running?.config;
+    if (!config?.hostId || !config.hostToken) return { ok: false, error: "这台电脑还没有配对" };
+    try {
+      const response = await fetch(
+        `${config.relay}/host-management/${encodeURIComponent(config.hostId)}/devices`,
+        {
+          headers: { authorization: `Host ${config.hostToken}` },
+          signal: AbortSignal.timeout(5000),
+        },
+      );
+      if (!response.ok) return { ok: false, error: `读取手机列表失败（${response.status}）` };
+      const data = (await response.json()) as { devices?: ConnectedDevice[] };
+      return { ok: true, devices: Array.isArray(data.devices) ? data.devices : [] };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async removeDevice(clientId: string): Promise<{ ok: boolean; error?: string }> {
+    const config = this.running?.config;
+    if (!config?.hostId || !config.hostToken) return { ok: false, error: "这台电脑还没有配对" };
+    try {
+      const response = await fetch(
+        `${config.relay}/host-management/${encodeURIComponent(config.hostId)}/devices/${encodeURIComponent(clientId)}/revoke`,
+        {
+          method: "POST",
+          headers: { authorization: `Host ${config.hostToken}` },
+          signal: AbortSignal.timeout(5000),
+        },
+      );
+      if (response.status === 409) return { ok: false, error: "至少保留一台手机；要全部断开请用解除配对" };
+      if (!response.ok) return { ok: false, error: `移除手机失败（${response.status}）` };
+      this.emit();
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   async updateProjects(
@@ -287,19 +365,21 @@ export class HostController {
     return { ok: true };
   }
 
-  /** 开一次配对会话；窗口关闭时调用 cancelPairing */
-  async beginPairing(): Promise<PairingStart> {
+  /** 开一次配对会话；已配对时传 addDevice 走“添加手机”，窗口关闭时调用 cancelPairing */
+  async beginPairing(addDevice = false): Promise<PairingStart> {
     const config = this.running?.config;
     if (!config) throw new Error("Host 还没有启动");
     this.pairingTicket?.cancel();
-    const ticket = await createPairingTicket(config);
+    const ticket = await createPairingTicket(config, { addDevice });
     this.pairingTicket = ticket;
     const result = ticket
       .waitForConfirmation()
       .then(async (next) => {
         if (this.pairingTicket !== ticket) return { ok: false, error: "cancelled" };
         this.pairingTicket = undefined;
-        await this.applyPairedConfig(next);
+        // 加手机不改 hostId/hostToken，也不需要重连
+        if (!ticket.addDevice) await this.applyPairedConfig(next);
+        this.emit();
         return { ok: true };
       })
       .catch((error: unknown) => {
@@ -314,7 +394,7 @@ export class HostController {
                 : String(error),
         };
       });
-    return { link: ticket.link, expiresAt: ticket.expiresAt, result };
+    return { link: ticket.link, expiresAt: ticket.expiresAt, addDevice: ticket.addDevice, result };
   }
 
   cancelPairing(): void {

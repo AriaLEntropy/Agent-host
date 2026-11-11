@@ -183,7 +183,7 @@
 
   function relayView(data) {
     mode = "relay";
-    setTitle(data.paired ? "重新配对" : "配对手机");
+    setTitle(data.paired ? "添加手机" : "配对手机");
     const relayValue = data.relay || "";
     const publicValue = data.publicRelayUrl || "";
     document.getElementById("body").innerHTML =
@@ -299,9 +299,13 @@
   function qrView(data) {
     mode = "qr";
     qrData = data;
-    setTitle("配对手机");
+    setTitle(data.addDevice ? "添加手机" : "配对手机");
     document.getElementById("body").innerHTML =
-      '<div class="lbl" style="text-align:center">用手机扫描二维码，确认后即可连接这台电脑</div>' +
+      '<div class="lbl" style="text-align:center">' +
+      (data.addDevice
+        ? "用另一台手机扫描二维码，加入这台电脑"
+        : "用手机扫描二维码，确认后即可连接这台电脑") +
+      '</div>' +
       '<div class="qr" id="qr">' + data.qrSvg + '<div class="stamp hidden" id="stamp">二维码已过期</div></div>' +
       '<div class="linkrow"><span class="u" id="link">' + esc(data.link) + '</span><span class="lnk" id="copy">复制</span></div>' +
       '<div class="cdown" id="cdown">剩余 0:00</div>';
@@ -342,19 +346,19 @@
     countdownTimer = setInterval(tick, 250);
   }
 
-  function resultView(kind, detail) {
+  function resultView(kind, detail, addDevice) {
     mode = "result";
     if (countdownTimer) clearInterval(countdownTimer);
     countdownTimer = null;
     const map = {
       wait: ["wr", alertIcon(), "等待手机确认…", "手机上点「确认配对」后自动完成；二维码仍然可以继续扫。"],
-      ok: ["ok", checkIcon(22), "配对成功", "1.5 秒后关闭本窗口，托盘转为已连接。"],
+      ok: ["ok", checkIcon(22), addDevice ? "已添加手机" : "配对成功", "1.5 秒后关闭本窗口，托盘转为已连接。"],
       expired: ["wr", alertIcon(), "二维码已过期", "请重新生成二维码后再扫。"],
       rejected: ["er", alertIcon(), "Relay 拒绝了这次配对", detail || "需要用手机重新扫码。"],
       network: ["er", alertIcon(), "网络错误", detail || "连不上 Relay，请检查地址和网络。"],
     };
     const item = map[kind] || map.network;
-    setTitle("配对手机");
+    setTitle(addDevice ? "添加手机" : "配对手机");
     document.getElementById("body").innerHTML =
       '<div class="res"><span class="big ' + item[0] + '">' + item[1] + '</span>' +
       '<span class="h">' + esc(item[2]) + '</span><span class="p">' + esc(item[3]) + '</span></div>';
@@ -381,7 +385,7 @@
     document.documentElement.classList.toggle("dark", view.theme === "dark");
     if (view.mode === "relay") relayView(view);
     if (view.mode === "qr") qrView(view);
-    if (view.mode === "result") resultView(view.result, view.error);
+    if (view.mode === "result") resultView(view.result, view.error, view.addDevice);
   });
   api.ready();
 </script>

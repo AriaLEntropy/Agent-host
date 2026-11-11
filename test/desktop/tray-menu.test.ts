@@ -64,7 +64,7 @@ describe("tray view", () => {
     );
     assert.deepEqual(
       panelView(status({ paired: true })).entries.map((entry) => entry.label),
-      ["重新配对…", "设置…"],
+      ["添加手机…", "设置…"],
     );
   });
 

@@ -21,6 +21,7 @@ import {
   hostDataDir,
   loadConfig,
   requireRelayConfig,
+  saveConfig,
   type Config,
 } from "../config.js";
 import {
@@ -79,6 +80,8 @@ export type StartHostOptions = {
   skipRelayHealth?: boolean;
   /** 主机凭据被 Relay 拒绝时通知调用方（CLI 退出，桌面转「未配对」） */
   onAuthRejected?: (detail: string) => void;
+  /** 手机端解散整组：Relay 已吊销全部凭据，调用方清掉本机配对状态 */
+  onGroupRevoked?: () => void;
 };
 
 export type StartedHost = {
@@ -109,6 +112,18 @@ export async function startHost(options: StartHostOptions = {}): Promise<Started
 
   client = new RelayClient(config, {
     onAuthRejected: (detail) => options.onAuthRejected?.(detail),
+    onGroupRevoked: () => {
+      const next: Config = { ...config };
+      delete next.hostId;
+      delete next.hostToken;
+      delete next.e2eeMasterKey;
+      void saveConfig(next)
+        .catch(() => undefined)
+        .finally(() => {
+          client?.stop();
+          options.onGroupRevoked?.();
+        });
+    },
   });
   await client.start();
   // 清单增删改后自动重新发现 agent；失败只记日志，不影响隧道

@@ -283,6 +283,8 @@ export class TaskStore {
   private persistPath: string | undefined;
   private persistTimer: NodeJS.Timeout | undefined;
   private persistChain: Promise<void> = Promise.resolve();
+  /** rememberProject 的合并快照定时器；避免只读观察者逐项目刷全量。 */
+  private projectSnapshotTimer?: NodeJS.Timeout;
   /** 协议 3.8：被手机移出列表的项目。惰性创建，避免 import 时读真实用户目录。 */
   private projectDismissals: ProjectDismissals | undefined;
   /** `undefined` = 还没用到（首次遇到 worktree 形状时惰性建默认解析器）；`null` = 停用。 */
@@ -571,8 +573,21 @@ export class TaskStore {
     );
     if (JSON.stringify(this.projects) !== before) {
       this.schedulePersist();
-      this.publish({ kind: "snapshot" });
+      this.scheduleProjectSnapshot();
     }
+  }
+
+  /**
+   * 只读观察者每轮会 rememberProject 多个项目；逐个 publish 全量快照会把手机
+   * 打到几十帧每秒。项目顺序/时间不需要毫秒级实时，合并成 1 秒一帧。
+   */
+  private scheduleProjectSnapshot() {
+    if (this.projectSnapshotTimer) return;
+    this.projectSnapshotTimer = setTimeout(() => {
+      this.projectSnapshotTimer = undefined;
+      this.publish({ kind: "snapshot" });
+    }, 1_000);
+    this.projectSnapshotTimer.unref?.();
   }
 
   /**
@@ -694,6 +709,10 @@ export class TaskStore {
   }
 
   reset() {
+    if (this.projectSnapshotTimer) {
+      clearTimeout(this.projectSnapshotTimer);
+      this.projectSnapshotTimer = undefined;
+    }
     this.seq = 0;
     this.tasks = [];
     this.projects = [];

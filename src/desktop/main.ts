@@ -32,12 +32,12 @@ function renderTray(status: HostStatus) {
   tray.setToolTip(trayTooltip(status));
 }
 
-async function confirmRepair(): Promise<boolean> {
+async function confirmAddDevice(): Promise<boolean> {
   const { response } = await dialog.showMessageBox({
     type: "question",
-    title: "重新配对？",
-    message: "当前手机将断开连接，需要用新手机重新扫码。",
-    buttons: ["取消", "重新配对"],
+    title: "添加手机？",
+    message: "当前已配对的手机不会断开；用另一台手机扫描二维码加入这台电脑。",
+    buttons: ["取消", "添加手机"],
     defaultId: 0,
     cancelId: 0,
     noLink: true,
@@ -94,7 +94,7 @@ async function bootstrap(): Promise<void> {
     showAgentError,
     repair: () => {
       if (host.relayInfo().paired) {
-        void confirmRepair().then((ok) => {
+        void confirmAddDevice().then((ok) => {
           if (ok) pairingWindow?.open("auto");
         });
       } else {
@@ -127,7 +127,7 @@ async function bootstrap(): Promise<void> {
       }
       if (id === "pair") {
         if (host.relayInfo().paired) {
-          void confirmRepair().then((ok) => {
+          void confirmAddDevice().then((ok) => {
             if (ok) pairingWindow?.open("auto");
           });
         } else {

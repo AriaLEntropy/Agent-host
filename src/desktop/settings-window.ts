@@ -177,9 +177,9 @@ export class SettingsWindow {
       if (!fromWindow(event) || !this.win) return { ok: false, error: "window closed" };
       const { response } = await dialog.showMessageBox(this.win, {
         type: "warning",
-        title: "解除与这台手机的配对？",
-        message: "只断开这台手机，不清除本机缓存与 Agent 配置。",
-        buttons: ["取消", "解除"],
+        title: "解除全部配对？",
+        message: "所有已配对的手机都需要重新扫码；本机缓存与 Agent 配置保留。",
+        buttons: ["取消", "解除全部"],
         defaultId: 0,
         cancelId: 0,
         noLink: true,
@@ -188,6 +188,25 @@ export class SettingsWindow {
       const result = await this.controller.unpair();
       this.push();
       return result;
+    });
+    ipcMain.handle("settings:devices", async (event) => {
+      if (!fromWindow(event)) return { ok: false, error: "window closed" };
+      return this.controller.listDevices();
+    });
+    ipcMain.handle("settings:remove-device", async (event, clientId: unknown) => {
+      if (!fromWindow(event) || typeof clientId !== "string" || !this.win)
+        return { ok: false, error: "invalid" };
+      const { response } = await dialog.showMessageBox(this.win, {
+        type: "warning",
+        title: "移除这台手机？",
+        message: "这台手机需要重新扫码才能再连上；其他手机不受影响。",
+        buttons: ["取消", "移除"],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      });
+      if (response !== 1) return { ok: false, canceled: true };
+      return this.controller.removeDevice(clientId);
     });
     ipcMain.handle("settings:choose-project-root", async (event) => {
       if (!fromWindow(event) || !this.win) return { ok: false, error: "window closed" };

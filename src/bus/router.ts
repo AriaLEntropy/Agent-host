@@ -2,6 +2,7 @@ import { acceptCommand } from "./commands.js";
 import { ArtifactError, getArtifact, MAX_UPLOAD_BYTES, putUpload } from "./artifacts.js";
 import { busStore, HostPlatform } from "./store.js";
 import { PLUGIN_VERSION } from "../tunnel/version.js";
+import type { Config } from "../config.js";
 
 export const PROTOCOL_VERSION = "3.10";
 export const SNAPSHOT_LONG_POLL_MS = 25_000;
@@ -34,6 +35,10 @@ export async function routeBus(input: {
   contentType?: string;
   /** 上传请求的原文件名（x-bus-filename，URL 编码），普通文件附件必填。 */
   filename?: string;
+  /** 本机 Host 配置；设备管理接口要用 hostId/hostToken 调 Relay */
+  hostConfig?: Config;
+  /** 解散整组成功后，让 Host 清掉本机配对状态 */
+  onGroupRevoked?: () => void;
 }): Promise<BusResponse> {
   const pathname = input.path.split("?")[0];
   const since = new URLSearchParams(input.path.split("?")[1] ?? "").get("since");
@@ -56,6 +61,74 @@ export async function routeBus(input: {
         forwardsDsh: input.forwardsDsh ?? false,
       },
     };
+  }
+  if (method === "POST" && pathname === "/bus/group/revoke") {
+    const config = input.hostConfig;
+    if (!config?.hostId || !config.hostToken)
+      return { status: 409, body: { error: "not_paired" } };
+    try {
+      const response = await fetch(
+        `${config.relay}/host-management/${encodeURIComponent(config.hostId)}/unbind`,
+        {
+          method: "POST",
+          headers: { authorization: `Host ${config.hostToken}` },
+          signal: AbortSignal.timeout(5_000),
+        },
+      );
+      if (!response.ok)
+        return {
+          status: response.status,
+          body: (await response.json().catch(() => ({}))) as Record<string, unknown>,
+        };
+      input.onGroupRevoked?.();
+      return { status: 200, body: { ok: true } };
+    } catch {
+      return { status: 503, body: { error: "relay_unreachable" } };
+    }
+  }
+  if (method === "GET" && pathname === "/bus/devices") {
+    const config = input.hostConfig;
+    if (!config?.hostId || !config.hostToken)
+      return { status: 409, body: { error: "not_paired" } };
+    try {
+      const response = await fetch(
+        `${config.relay}/host-management/${encodeURIComponent(config.hostId)}/devices`,
+        {
+          headers: { authorization: `Host ${config.hostToken}` },
+          signal: AbortSignal.timeout(5_000),
+        },
+      );
+      return {
+        status: response.status,
+        body: (await response.json().catch(() => ({}))) as Record<string, unknown>,
+      };
+    } catch {
+      return { status: 503, body: { error: "relay_unreachable" } };
+    }
+  }
+  if (method === "POST" && pathname.startsWith("/bus/devices/") && pathname.endsWith("/revoke")) {
+    const clientId = pathname.slice("/bus/devices/".length, -"/revoke".length);
+    const config = input.hostConfig;
+    if (!config?.hostId || !config.hostToken)
+      return { status: 409, body: { error: "not_paired" } };
+    if (!clientId || clientId.includes("/"))
+      return { status: 400, body: { error: "invalid_device_id" } };
+    try {
+      const response = await fetch(
+        `${config.relay}/host-management/${encodeURIComponent(config.hostId)}/devices/${encodeURIComponent(clientId)}/revoke`,
+        {
+          method: "POST",
+          headers: { authorization: `Host ${config.hostToken}` },
+          signal: AbortSignal.timeout(5_000),
+        },
+      );
+      return {
+        status: response.status,
+        body: (await response.json().catch(() => ({}))) as Record<string, unknown>,
+      };
+    } catch {
+      return { status: 503, body: { error: "relay_unreachable" } };
+    }
   }
   if (method === "GET" && pathname === "/bus/snapshot") {
     const seq = busStore.currentSeq();

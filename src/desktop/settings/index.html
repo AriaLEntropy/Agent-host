@@ -169,11 +169,12 @@
       '<div class="inline-err hidden" id="relay-err">' + alertIcon() + ' <span></span></div>' +
       '<div class="inline-ok hidden" id="relay-ok">连接成功</div>' +
       '<div class="frow"><button class="btn" id="test">测试连接</button><button class="btn" id="detect">检测本机 Relay</button><span class="sp"></span><button class="btn pri" id="save" disabled>保存并重连</button></div>' +
-      '<div class="setrow" style="margin-top:14px"><span class="k"><b>手机配对</b><span>' + (view.paired ? "已配对；重新配对会断开当前手机" : "当前未配对") + '</span></span>' +
-        '<button class="btn" id="repair">' + (view.paired ? "重新配对…" : "配对手机…") + '</button></div>' +
+      '<div class="setrow" style="margin-top:14px"><span class="k"><b>手机配对</b><span>' + (view.paired ? "已配对；添加手机会保留当前手机" : "当前未配对") + '</span></span>' +
+        '<button class="btn" id="repair">' + (view.paired ? "添加手机…" : "配对手机…") + '</button></div>' +
+      (view.paired ? '<div class="grp">已连接的手机</div><div id="device-list"><div class="well">正在读取…</div></div>' : "") +
       (view.paired ? '<div class="grp">危险操作</div>' +
-        '<div class="setrow"><span class="k"><b>解除配对</b><span>只断开这台手机，不清除本机缓存与 Agent 配置</span></span>' +
-        '<button class="btn dgr" id="unpair">解除配对…</button></div>' : "");
+        '<div class="setrow"><span class="k"><b>解除全部配对</b><span>断开这台电脑上的所有手机；不清除本机缓存与 Agent 配置</span></span>' +
+        '<button class="btn dgr" id="unpair">解除全部…</button></div>' : "");
   }
 
   function sectionAgents() {
@@ -232,6 +233,55 @@
       result;
   }
 
+  function platformName(platform) {
+    if (platform === "android") return "Android";
+    if (platform === "ios") return "iOS";
+    return "其他";
+  }
+
+  function timeLabel(ms) {
+    if (!ms) return "未连接";
+    const d = new Date(ms);
+    return (d.getMonth() + 1) + "-" + d.getDate() + " " +
+      String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  }
+
+  async function loadDevices() {
+    const box = document.getElementById("device-list");
+    if (!box) return;
+    const result = await api.listDevices();
+    if (!box.isConnected) return;
+    if (!result.ok) {
+      box.innerHTML = '<div class="well">' + esc(result.error || "读取失败") + '</div>';
+      return;
+    }
+    const devices = result.devices || [];
+    if (!devices.length) {
+      box.innerHTML = '<div class="well">还没有已连接的手机</div>';
+      return;
+    }
+    const onlyOne = devices.length <= 1;
+    box.innerHTML = devices.map((device) =>
+      '<div class="setrow"><span class="k"><b>' + esc(device.deviceLabel || "手机") +
+      (device.online ? ' <span style="color:var(--ok)">在线</span>' : '') + '</b>' +
+      '<span>' + esc(platformName(device.platform)) + ' · 添加于 ' + esc(timeLabel(device.createdAt)) +
+      (device.lastSeenAt ? ' · 最近 ' + esc(timeLabel(device.lastSeenAt)) : '') + '</span></span>' +
+      '<button class="btn dgr" data-remove="' + esc(device.id) + '" ' + (onlyOne ? "disabled" : "") + '>移除</button></div>',
+    ).join("");
+    box.querySelectorAll("[data-remove]").forEach((el) => {
+      el.addEventListener("click", async () => {
+        const result = await api.removeDevice(el.getAttribute("data-remove"));
+        if (!result.ok && !result.canceled) {
+          const well = document.createElement("div");
+          well.className = "well";
+          well.textContent = result.error || "移除失败";
+          box.appendChild(well);
+        }
+        void loadDevices();
+      });
+    });
+  }
+
   function render() {
     if (!view) return;
     document.documentElement.classList.toggle("dark", view.theme === "dark");
@@ -243,7 +293,10 @@
     if (active === "通用") body.innerHTML = sectionGeneral();
     if (active === "诊断") body.innerHTML = sectionDiagnostics();
     bind();
-    if (active === "连接") probeConfiguredRelay();
+    if (active === "连接") {
+      probeConfiguredRelay();
+      void loadDevices();
+    }
   }
 
   function bind() {
