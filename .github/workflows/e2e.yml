@@ -1,0 +1,54 @@
+name: e2e
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  protocol-e2e:
+    name: protocol e2e (relay + host + fake agent)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      AGENT_HOST_RELAY_DIR: ${{ github.workspace }}/dsh-scan-remote/relay
+    steps:
+      - name: Checkout host
+        uses: actions/checkout@v4
+
+      - name: Checkout relay
+        uses: actions/checkout@v4
+        with:
+          repository: AriaLEntropy/dsh-scan-remote
+          path: dsh-scan-remote
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install host
+        run: npm ci
+
+      - name: Build host
+        run: npm run build
+
+      - name: Install and build relay
+        working-directory: dsh-scan-remote/relay
+        run: |
+          npm ci
+          npm run build
+
+      - name: Protocol e2e
+        run: npm run e2e:smoke
+
+      # 多手机依赖 relay 的 /pair/device-session；relay 分支还没带这个端点时先跳过，
+      # 端点合入后同一条 job 会自动开始跑，不需要再改 workflow。
+      - name: Multi-phone e2e
+        run: |
+          if grep -q "pair/device-session" dsh-scan-remote/relay/src/server.ts; then
+            npm run smoke:multi-phone
+          else
+            echo "relay checkout has no add-device endpoint; skipping multi-phone e2e"
+          fi

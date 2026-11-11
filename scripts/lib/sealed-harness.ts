@@ -57,10 +57,12 @@ export type Harness = {
   clientToken?: string;
   hostId?: string;
   hostToken?: string;
+  masterKey: string;
   hostPid?: number;
   restartHost?: () => Promise<void>;
   restartRelay?: (downMs?: number) => Promise<void>;
   openTunnel(): Promise<SealedTunnel>;
+  openTunnelWith(clientToken: string): Promise<SealedTunnel>;
   close(): Promise<void>;
 };
 
@@ -544,6 +546,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
   let restartRelay: (() => Promise<void>) | undefined;
   let closed = false;
   const logs: string[] = [];
+  const previousConfigEnv = process.env.AGENT_HOST_CONFIG;
 
   const close = async () => {
     if (closed) return;
@@ -570,10 +573,14 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       if (child.exitCode === null) child.kill("SIGKILL");
     }
     if (dataDir) await rm(dataDir, { recursive: true, force: true }).catch(() => undefined);
+    if (previousConfigEnv === undefined) delete process.env.AGENT_HOST_CONFIG;
+    else process.env.AGENT_HOST_CONFIG = previousConfigEnv;
   };
 
   try {
     dataDir = await mkdtemp(join(tmpdir(), "agent-host-smoke-"));
+    // 配对会 saveConfig；测试必须写进临时目录，绝不覆盖真实 %APPDATA%/agent-host。
+    process.env.AGENT_HOST_CONFIG = join(dataDir, "config.json");
     if (options.commandLog || options.hostProcess) {
       commandLogPath = join(dataDir, "commands.json");
     }
@@ -683,9 +690,9 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       await waitForConnected(host);
     }
 
-    const openTunnel = async (): Promise<SealedTunnel> => {
+    const openTunnelWith = async (clientToken: string): Promise<SealedTunnel> => {
       if (!pairing) throw new Error("host is not paired");
-      const ticket = await post(base, "/access-ticket", {}, pairing.clientToken);
+      const ticket = await post(base, "/access-ticket", {}, clientToken);
       if (ticket.status !== 200)
         throw new Error(`access-ticket returned ${ticket.status}: ${JSON.stringify(ticket.data)}`);
       const created = new SealedTunnel(
@@ -698,6 +705,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       tunnels.add(created);
       return created;
     };
+    const openTunnel = () => openTunnelWith(pairing.clientToken);
 
     const tunnel = await openTunnel();
     return {
@@ -708,12 +716,14 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       clientToken: pairing.clientToken,
       hostId: pairing.hostId,
       hostToken: pairing.hostToken,
+      masterKey: pairing.masterKey,
       get hostPid() {
         return hostChild?.pid;
       },
       restartHost,
       restartRelay,
       openTunnel,
+      openTunnelWith,
       close,
     };
   } catch (error) {
