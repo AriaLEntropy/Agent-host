@@ -49,7 +49,8 @@ async function waitForRelay(url: string, child: ChildProcess, timeoutMs = 15_000
 }
 
 async function main() {
-  const port = await freePort();
+  const requestedPort = Number(process.env.E2E_PORT ?? 0);
+  const port = Number.isFinite(requestedPort) && requestedPort > 0 ? requestedPort : await freePort();
   const relayUrl = `http://127.0.0.1:${port}`;
   const publicRelayUrl = process.env.E2E_PUBLIC_RELAY_URL?.trim() || `http://10.0.2.2:${port}`;
   const dataDir = await mkdtemp(join(tmpdir(), "agent-host-emulator-e2e-"));
