@@ -1060,6 +1060,24 @@ describe("claude subprocess helpers", () => {
     ]);
   });
 
+  test("omits the stdio permission channel for a compatibility resume", () => {
+    const args = claudeArguments({
+      resuming: "s1",
+      injection: null,
+      permissionPromptTool: false,
+    });
+    assert.deepEqual(args, [
+      "-p",
+      "--resume",
+      "s1",
+      "--input-format",
+      "stream-json",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+    ]);
+  });
+
   test("writes an image before the text block and stays on one line", () => {
     const payload = stdinPayload("hello", [
       { data: Buffer.from("abc"), contentType: "image/png" },

@@ -3,7 +3,7 @@
 
 import { spawnSync, type ChildProcess } from "node:child_process";
 import { spawnExecutable } from "../ported/spawn.js";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -39,6 +39,7 @@ import {
   type ClaudePaths,
 } from "./claude-hooks.js";
 import { ClaudeLateRequest } from "./claude-late-answer.js";
+import { fileHasUnsupportedToolAddition } from "./claude-compat.js";
 import { ClaudeModels } from "./claude-models.js";
 import {
   ClaudeMessageReader,
@@ -294,6 +295,8 @@ export class ClaudeConnector implements TaskConnector {
   private readonly queued = new Map<string, QueuedTurn[]>();
   private readonly launching = new Set<string>();
   private readonly superseded = new Set<string>();
+  /** 会话文件大小 → 是否含 tool_addition 块；恢复前扫描一次，文件不变就复用 */
+  private readonly plainResume = new Map<string, { size: number; plain: boolean }>();
   private lastPublish: Promise<void> = Promise.resolve();
   private readonly titleRefreshes = new Map<string, Promise<void>>();
   private binaryWithoutName: string | null = null;
@@ -1287,15 +1290,21 @@ export class ClaudeConnector implements TaskConnector {
     const workingDirectory = existing?.projectPath ?? process.cwd();
     this.launching.add(sessionID);
     try {
-      const injection = await AgentToolsInjection.make(
-        this.tools(),
-        this.registry,
-        taskIdFor(sessionID, "claude"),
-      );
+      // 旧会话里带 tool_addition 时，stdio 权限通道会把块回放给兼容端点并触发 422
+      // 这种会话改成普通恢复：内置工具仍可用，但这一轮不把审批请求转给手机
+      const plain = this.needsPlainResume(sessionID);
+      const injection = plain
+        ? null
+        : await AgentToolsInjection.make(
+            this.tools(),
+            this.registry,
+            taskIdFor(sessionID, "claude"),
+          );
       const launched = await this.run(
         claudeArguments({
           resuming: sessionID,
           injection,
+          permissionPromptTool: !plain,
           model: turn.model,
           effort: turn.effort,
         }),
@@ -1901,6 +1910,23 @@ export class ClaudeConnector implements TaskConnector {
     return new ClaudeMessageReader(this.paths);
   }
 
+  /** 这条会话的历史是否会让 `--permission-prompt-tool stdio` 恢复失败 */
+  private needsPlainResume(sessionID: string): boolean {
+    const file = this.transcriptFor(sessionID);
+    if (!file) return false;
+    let size: number;
+    try {
+      size = statSync(file).size;
+    } catch {
+      return false;
+    }
+    const cached = this.plainResume.get(sessionID);
+    if (cached && cached.size === size) return cached.plain;
+    const plain = fileHasUnsupportedToolAddition(file);
+    this.plainResume.set(sessionID, { size, plain });
+    return plain;
+  }
+
   /** `~/.claude/projects` 下找会话文件（测试与诊断用）。 */
   transcriptFor(sessionID: string): string | null {
     return transcriptURL(sessionID, this.paths.projectsDirectory);
@@ -1955,6 +1981,8 @@ export function resolveModelSelection(
 export function claudeArguments(input: {
   resuming: string | null;
   injection: AgentToolsInjection | null;
+  /** 默认 true；兼容端点恢复失败时关掉，避免工具追加块被回放 */
+  permissionPromptTool?: boolean;
   model?: string;
   effort?: string;
   name?: string | null;
@@ -1965,15 +1993,11 @@ export function claudeArguments(input: {
   if (input.effort) arguments_.push("--effort", input.effort);
   if (input.name !== undefined && input.name !== null) arguments_.push(`--name=${input.name}`);
   if (input.injection) arguments_.push(...input.injection.claudeArguments());
-  arguments_.push(
-    "--input-format",
-    "stream-json",
-    "--permission-prompt-tool",
-    "stdio",
-    "--output-format",
-    "stream-json",
-    "--verbose",
-  );
+  arguments_.push("--input-format", "stream-json");
+  if (input.permissionPromptTool !== false) {
+    arguments_.push("--permission-prompt-tool", "stdio");
+  }
+  arguments_.push("--output-format", "stream-json", "--verbose");
   return arguments_;
 }
 
