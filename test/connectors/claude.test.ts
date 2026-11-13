@@ -160,6 +160,19 @@ describe("claude models", () => {
     assert.equal(options.find((option) => option.id === "haiku")?.efforts, undefined);
   });
 
+  test("custom env models are added without duplicating built-in families", () => {
+    const custom = ClaudeModels.customOptions({
+      ANTHROPIC_MODEL: "deepseek-flash[1m]",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "deepseek-flash[1m]",
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "deepseek-flash",
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "opus",
+    });
+    assert.deepEqual(custom.map((option) => option.id), ["deepseek-flash[1m]", "deepseek-flash"]);
+    const options = ClaudeModels.options({ versions: {}, custom });
+    assert.equal(options.find((option) => option.id === "deepseek-flash[1m]")?.displayName, "deepseek-flash[1m]");
+    assert.equal(options.filter((option) => option.id === "opus").length, 1);
+  });
+
   test("parses wrapped --effort help text and only raises versions", () => {
     const help = [
       "  --effort <level>  Set effort level (low, medium,",

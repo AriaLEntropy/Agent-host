@@ -346,7 +346,11 @@ export class ClaudeConnector implements TaskConnector {
 
   private get modelOptions() {
     return this.supportedEfforts
-      ? ClaudeModels.options({ versions: this.modelVersions, efforts: this.supportedEfforts })
+      ? ClaudeModels.options({
+          versions: this.modelVersions,
+          efforts: this.supportedEfforts,
+          custom: ClaudeModels.customOptions(this.settingsEnv()),
+        })
       : undefined;
   }
 

@@ -31,9 +31,13 @@ export const ClaudeModels = {
   },
 
   /** 显示名带上版本号；没有版本的只显示系列名。 */
-  options(input: { versions: Record<string, number[]>; efforts?: string[] }): ModelOption[] {
+  options(input: {
+    versions: Record<string, number[]>;
+    efforts?: string[];
+    custom?: ModelOption[];
+  }): ModelOption[] {
     const efforts = input.efforts ?? ClaudeModels.efforts;
-    return families.map((family) => {
+    const builtIn = families.map((family) => {
       const version = input.versions[family.id];
       const suffix = version && version.length > 0 ? ` ${version.join(".")}` : "";
       const option: ModelOption = {
@@ -43,6 +47,37 @@ export const ClaudeModels = {
       if (family.adjustable) option.efforts = [...efforts];
       return option;
     });
+    const seen = new Set(builtIn.map((option) => option.id));
+    for (const option of input.custom ?? []) {
+      if (seen.has(option.id)) continue;
+      seen.add(option.id);
+      builtIn.push(option);
+    }
+    return builtIn;
+  },
+
+  /**
+   * `settings.json` 的 env 里的自定义模型
+   *
+   * Claude Code 没有列模型的接口；用户把第三方端点的模型名写在
+   * ANTHROPIC_MODEL / ANTHROPIC_DEFAULT_*_MODEL 里时，把它们也放进选择器。
+   */
+  customOptions(env: Record<string, string>): ModelOption[] {
+    const keys = [
+      "ANTHROPIC_MODEL",
+      "ANTHROPIC_DEFAULT_OPUS_MODEL",
+      "ANTHROPIC_DEFAULT_SONNET_MODEL",
+      "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    ];
+    const result: ModelOption[] = [];
+    const seen = new Set<string>();
+    for (const key of keys) {
+      const id = env[key]?.trim();
+      if (!id || seen.has(id) || families.some((family) => family.id === id)) continue;
+      seen.add(id);
+      result.push({ id, displayName: id });
+    }
+    return result;
   },
 
   /** 本机 `claude --help` 里 `--effort` 列出的档位；CLI 没装、失败或没列出时 null。 */
