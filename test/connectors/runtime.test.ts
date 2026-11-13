@@ -12,6 +12,7 @@ import { waitForCommands } from "../../src/bus/commands.js";
 import { routeBus } from "../../src/bus/router.js";
 import { busStore } from "../../src/bus/store.js";
 import {
+  isExistingDirectory,
   resetRuntime,
   setIdleMs,
   setDshFactories,
@@ -26,6 +27,7 @@ import {
 
 const agentId = "hV3nQ7pLxK2mR8sTfW4bZQ";
 const fake = process.execPath;
+const projectDir = process.cwd();
 
 /**
  * 这一组用例只测 ACP 路径与 dsh 的路由形状。dsh 的真实连接器会去扫 `~/.dsh`、
@@ -127,13 +129,23 @@ function startCommand(id: string, prompt: string) {
     startTask: {
       source: "acp",
       connectorId: "my-agent",
-      projectPath: "C:/work/demo",
+      projectPath: projectDir,
       prompt,
     },
   };
 }
 
 describe("acp runtime", { concurrency: false }, () => {
+  test("startTask rejects a project directory that no longer exists", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "runtime-project-"));
+    try {
+      assert.equal(isExistingDirectory(directory), true);
+      assert.equal(isExistingDirectory(join(directory, "missing")), false);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   test("startTask, approval, and fetchMessages go through a fake ACP process", async () => {
     reset();
     const executable = fake;
@@ -169,7 +181,7 @@ describe("acp runtime", { concurrency: false }, () => {
       startTask: {
         source: "acp",
         connectorId: "my-agent",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "NEED_PERMISSION",
       },
     });
@@ -192,7 +204,7 @@ describe("acp runtime", { concurrency: false }, () => {
       startTask: {
         source: "acp",
         connectorId: "my-agent",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "再次",
       },
     });
@@ -237,7 +249,7 @@ describe("acp runtime", { concurrency: false }, () => {
       startTask: {
         source: "acp",
         connectorId: "my-agent",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "hello",
       },
     };
@@ -271,7 +283,7 @@ describe("acp runtime", { concurrency: false }, () => {
       startTask: {
         source: "acp",
         connectorId: "gemini",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "hello",
       },
     });
@@ -303,7 +315,7 @@ describe("acp runtime", { concurrency: false }, () => {
       startTask: {
         source: "acp",
         connectorId: "my-agent",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "hello",
       },
     });
@@ -326,7 +338,7 @@ describe("acp runtime", { concurrency: false }, () => {
       startTask: {
         source: "acp",
         connectorId: "my-agent",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "NEED_PERMISSION",
       },
     });
@@ -367,7 +379,7 @@ describe("acp runtime", { concurrency: false }, () => {
       startTask: {
         source: "acp",
         connectorId: "my-agent",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "CRASH",
       },
     });
@@ -400,7 +412,7 @@ describe("acp runtime", { concurrency: false }, () => {
       kind: "startTask",
       startTask: {
         source: "dsh",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "hello",
       },
     });
@@ -436,7 +448,7 @@ describe("acp runtime", { concurrency: false }, () => {
       startTask: {
         source: "acp",
         connectorId: "my-agent",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "NEED_PERMISSION",
       },
     });
@@ -483,7 +495,7 @@ describe("acp runtime", { concurrency: false }, () => {
         startTask: {
           source: "acp",
           connectorId: "my-agent",
-          projectPath: "C:/work/demo",
+          projectPath: projectDir,
           prompt: "hello",
         },
       });
@@ -498,7 +510,7 @@ describe("acp runtime", { concurrency: false }, () => {
         startTask: {
           source: "acp",
           connectorId: "my-agent",
-          projectPath: "C:/work/demo",
+          projectPath: projectDir,
           prompt: "ECHO:second",
         },
       });
@@ -628,7 +640,7 @@ describe("acp runtime", { concurrency: false }, () => {
         startTask: {
           source: "acp",
           connectorId: "my-agent",
-          projectPath: "C:/work/demo",
+          projectPath: projectDir,
           prompt: "hello",
           attachments: [{ artifactId: uploadId }],
         },

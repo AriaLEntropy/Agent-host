@@ -16,6 +16,7 @@ import {
 } from "../../src/connectors/runtime.js";
 
 const agentId = "hV3nQ7pLxK2mR8sTfW4bZQ";
+const projectDir = process.cwd();
 
 // 启停会写本机设置：测试一律指向临时目录，不碰真实 %APPDATA%。
 process.env.AGENT_HOST_CONNECTOR_SETTINGS = join(
@@ -124,7 +125,7 @@ describe("dsh runtime integration", { concurrency: false }, () => {
       kind: "startTask",
       startTask: {
         source: "dsh",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "hello",
         model: "deepseek",
         effort: "high",
@@ -133,7 +134,7 @@ describe("dsh runtime integration", { concurrency: false }, () => {
     assert.equal(started.ok, true, started.error);
     assert.equal(started.taskId, "dsh:native-1");
     assert.deepEqual(calls.find((call) => call.method === "start")?.args, [
-      "C:/work/demo",
+      projectDir,
       "hello",
       [],
       { model: "deepseek", effort: "high" },
@@ -227,7 +228,7 @@ describe("dsh runtime integration", { concurrency: false }, () => {
       kind: "startTask",
       startTask: {
         source: "dsh",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "see this",
         // 旧协议形状：没有 artifactId，本机缓存里也没有对应的图。
         attachments: [{ type: "image", mimeType: "image/png", base64: "AAAA", name: "a.png" }],

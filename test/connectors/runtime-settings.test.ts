@@ -26,6 +26,7 @@ import {
 } from "../../src/connectors/settings-store.js";
 
 const agentId = "hV3nQ7pLxK2mR8sTfW4bZQ";
+const projectDir = process.cwd();
 const roots: string[] = [];
 
 function fakeConnector(kind: DedicatedKind): TaskConnector {
@@ -115,14 +116,14 @@ describe("runtime connector settings persistence", { concurrency: false }, () =>
       kind: "startTask",
       startTask: {
         source: "codex",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "hello",
         autoApprove: true,
       },
     });
     assert.equal(started.ok, true, started.error);
     const hooks = dedicatedConnectorHooks("codex");
-    assert.equal(hooks.autoApproves(started.taskId!, "C:/work/demo"), true);
+    assert.equal(hooks.autoApproves(started.taskId!, projectDir), true);
     await flushConnectorSettings();
 
     // 模拟宿主重启：清内存、重新发现。
@@ -133,12 +134,12 @@ describe("runtime connector settings persistence", { concurrency: false }, () =>
     await refreshAgents(async () => ({ agents: [dedicatedSpec("codex")] }));
 
     const reloaded = dedicatedConnectorHooks("codex");
-    assert.equal(reloaded.autoApproves("codex:native-1", "C:/work/demo"), true);
+    assert.equal(reloaded.autoApproves("codex:native-1", projectDir), true);
     // 另一种路径写法也应命中同一个项目。
     assert.equal(
       reloaded.autoApproves(
         "codex:native-1",
-        normalizeProjectPath("C:/work/demo").replace(/\//g, "\\") + "/",
+        normalizeProjectPath(projectDir).replace(/[\\/]/g, "\\") + "/",
       ),
       true,
     );
@@ -167,7 +168,7 @@ describe("runtime connector settings persistence", { concurrency: false }, () =>
     const rejected = await executeCommand({
       id: "start-disabled",
       kind: "startTask",
-      startTask: { source: "codex", projectPath: "C:/work/demo", prompt: "hello" },
+      startTask: { source: "codex", projectPath: projectDir, prompt: "hello" },
     });
     assert.equal(rejected.ok, false);
     assert.match(rejected.error ?? "", /disabled/);
@@ -257,7 +258,7 @@ describe("runtime connector settings persistence", { concurrency: false }, () =>
       const started = await executeCommand({
         id: "start-with-corrupt-settings",
         kind: "startTask",
-        startTask: { source: "codex", projectPath: "C:/work/demo", prompt: "hello" },
+        startTask: { source: "codex", projectPath: projectDir, prompt: "hello" },
       });
       assert.equal(started.ok, true, started.error);
     } finally {

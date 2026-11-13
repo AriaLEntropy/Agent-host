@@ -1,6 +1,7 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { copyFile, mkdir } from "node:fs/promises";
+import { statSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -1548,12 +1549,25 @@ async function prepareNewProject(
   return { ok: true, path: target };
 }
 
+export function isExistingDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 async function startTask(commandId: string, payload: Record<string, unknown>): Promise<BusCommandResult> {
   if (typeof payload.newProject === "string" && payload.newProject.trim()) {
     const prepared = await prepareNewProject(payload.newProject.trim());
     if (!prepared.ok) return done(commandId, false, prepared.error);
     payload.projectPath = prepared.path;
     delete payload.newProject;
+  }
+  const requestedProject =
+    typeof payload.projectPath === "string" ? payload.projectPath.trim() : "";
+  if (requestedProject && !isExistingDirectory(requestedProject)) {
+    return done(commandId, false, `项目目录不存在：${requestedProject}`);
   }
   const source = payload.source;
   if (isDedicatedKind(source)) return startDedicatedTask(commandId, source, payload);

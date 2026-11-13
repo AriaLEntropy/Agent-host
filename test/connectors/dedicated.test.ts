@@ -26,6 +26,7 @@ import {
 } from "../../src/connectors/runtime.js";
 
 const agentId = "hV3nQ7pLxK2mR8sTfW4bZQ";
+const projectDir = process.cwd();
 
 // 启停与自动批准会写本机设置：测试一律指向临时目录，不碰真实 %APPDATA%。
 process.env.AGENT_HOST_CONNECTOR_SETTINGS = join(
@@ -158,7 +159,7 @@ describe("dedicated connectors", { concurrency: false }, () => {
         kind: "startTask",
         startTask: {
           source: kind,
-          projectPath: "C:/work/demo",
+          projectPath: projectDir,
           prompt: "hello",
           model: "gpt-5",
           effort: "high",
@@ -169,7 +170,7 @@ describe("dedicated connectors", { concurrency: false }, () => {
       const start = calls.find((call) => call.method === "start");
       assert.ok(start, "start was not called");
       assert.deepEqual(start.args, [
-        "C:/work/demo",
+        projectDir,
         "hello",
         [],
         { model: "gpt-5", effort: "high" },
@@ -245,7 +246,7 @@ describe("dedicated connectors", { concurrency: false }, () => {
       kind: "startTask",
       startTask: {
         source: "codex",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "see this",
         // 旧协议形状：没有 artifactId，本机缓存里也没有对应的图。
         attachments: [{ type: "image", mimeType: "image/png", base64: "AAAA", name: "a.png" }],
@@ -282,7 +283,7 @@ describe("dedicated connectors", { concurrency: false }, () => {
     const started = await executeCommand({
       id: "start-bare",
       kind: "startTask",
-      startTask: { source: "claude", projectPath: "C:/work/demo", prompt: "hello" },
+      startTask: { source: "claude", projectPath: projectDir, prompt: "hello" },
     });
     assert.equal(started.ok, true, started.error);
     assert.equal(started.taskId, "claude:native-claude");
@@ -304,7 +305,7 @@ describe("dedicated connectors", { concurrency: false }, () => {
     const started = await executeCommand({
       id: "start-unavailable",
       kind: "startTask",
-      startTask: { source: "hermes", projectPath: "C:/work/demo", prompt: "hello" },
+      startTask: { source: "hermes", projectPath: projectDir, prompt: "hello" },
     });
     assert.equal(started.ok, false);
     assert.equal(started.error, "本机未检测到 Hermes");
@@ -401,15 +402,15 @@ describe("dedicated connectors", { concurrency: false }, () => {
       kind: "startTask",
       startTask: {
         source: "codex",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "hello",
         autoApprove: true,
       },
     });
     assert.equal(started.ok, true, started.error);
-    assert.equal(hooks.autoApproves(started.taskId!, "C:/work/demo"), true);
-    // 路径写法不同（反斜杠 / 大小写）也应命中同一个项目。
-    assert.equal(hooks.autoApproves(started.taskId!, "c:\\work\\demo\\"), true);
+    assert.equal(hooks.autoApproves(started.taskId!, projectDir), true);
+    // 末尾多一个分隔符也应命中同一个项目
+    assert.equal(hooks.autoApproves(started.taskId!, projectDir + (projectDir.includes("\\") ? "\\" : "/")), true);
 
     const followed = await executeCommand({
       id: "follow-auto-approve-off",
@@ -417,7 +418,7 @@ describe("dedicated connectors", { concurrency: false }, () => {
       followUp: { taskId: started.taskId!, prompt: "again", autoApprove: false },
     });
     assert.equal(followed.ok, true, followed.error);
-    assert.equal(hooks.autoApproves(started.taskId!, "C:/work/demo"), false);
+    assert.equal(hooks.autoApproves(started.taskId!, projectDir), false);
   });
 
   test("autoApprove outside a project and on unsupported connectors fails explicitly", async () => {
@@ -437,7 +438,7 @@ describe("dedicated connectors", { concurrency: false }, () => {
     const unsupported = await executeCommand({
       id: "start-auto-approve-hermes",
       kind: "startTask",
-      startTask: { source: "hermes", projectPath: "C:/work/demo", prompt: "hello", autoApprove: true },
+      startTask: { source: "hermes", projectPath: projectDir, prompt: "hello", autoApprove: true },
     });
     assert.equal(unsupported.ok, false);
     assert.equal(unsupported.error, "this agent does not support auto approve");
@@ -463,7 +464,7 @@ describe("dedicated connectors", { concurrency: false }, () => {
     const started = await executeCommand({
       id: "start-before-disable",
       kind: "startTask",
-      startTask: { source: "codex", projectPath: "C:/work/demo", prompt: "hello" },
+      startTask: { source: "codex", projectPath: projectDir, prompt: "hello" },
     });
     assert.equal(started.ok, true, started.error);
 
@@ -486,7 +487,7 @@ describe("dedicated connectors", { concurrency: false }, () => {
     const start = await executeCommand({
       id: "start-disabled",
       kind: "startTask",
-      startTask: { source: "codex", projectPath: "C:/work/demo", prompt: "hello" },
+      startTask: { source: "codex", projectPath: projectDir, prompt: "hello" },
     });
     assert.equal(start.ok, false);
     assert.match(start.error ?? "", /disabled/);
@@ -534,7 +535,7 @@ describe("dedicated connectors", { concurrency: false }, () => {
     const started = await executeCommand({
       id: "start-before-restart",
       kind: "startTask",
-      startTask: { source: "codex", projectPath: "C:/work/demo", prompt: "hello" },
+      startTask: { source: "codex", projectPath: projectDir, prompt: "hello" },
     });
     assert.equal(started.ok, true, started.error);
     assert.equal(built, 1);

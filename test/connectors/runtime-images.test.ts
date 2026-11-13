@@ -24,6 +24,7 @@ import {
 } from "../../src/connectors/runtime.js";
 
 const agentId = "hV3nQ7pLxK2mR8sTfW4bZQ";
+const projectDir = process.cwd();
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01]);
 
 type Call = { method: string; args: unknown[] };
@@ -177,7 +178,7 @@ describe("runtime images", { concurrency: false }, () => {
       kind: "startTask",
       startTask: {
         source: "codex",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "see this",
         attachments: [attachmentFor(id)],
       },
@@ -215,7 +216,7 @@ describe("runtime images", { concurrency: false }, () => {
       kind: "startTask",
       startTask: {
         source: "codex",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "see this",
         attachments: [attachmentFor(missing)],
       },
@@ -230,7 +231,7 @@ describe("runtime images", { concurrency: false }, () => {
       kind: "startTask",
       startTask: {
         source: "codex",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "see this",
         attachments: [attachmentFor(expired)],
       },
@@ -257,7 +258,7 @@ describe("runtime images", { concurrency: false }, () => {
       kind: "startTask",
       startTask: {
         source: "codex",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "see these",
         attachments,
       },
@@ -278,7 +279,7 @@ describe("runtime images", { concurrency: false }, () => {
       kind: "startTask",
       startTask: {
         source: "hermes",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "see this",
         attachments: [attachmentFor(id)],
       },
@@ -297,7 +298,7 @@ describe("runtime images", { concurrency: false }, () => {
     const started = await executeCommand({
       id: "start-dsh-image",
       kind: "startTask",
-      startTask: { source: "dsh", projectPath: "C:/work/demo", prompt: "see this", attachments: [attachmentFor(id)] },
+      startTask: { source: "dsh", projectPath: projectDir, prompt: "see this", attachments: [attachmentFor(id)] },
     });
     assert.equal(started.ok, true, started.error);
     const start = calls.find((call) => call.method === "start");
@@ -340,7 +341,7 @@ describe("runtime images", { concurrency: false }, () => {
       startTask: {
         source: "acp",
         connectorId: "my-agent",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "see this",
         attachments: [attachmentFor(id)],
       },
@@ -373,7 +374,7 @@ describe("runtime images", { concurrency: false }, () => {
       startTask: {
         source: "acp",
         connectorId: "my-agent",
-        projectPath: "C:/work/demo",
+        projectPath: projectDir,
         prompt: "ECHO:first",
         attachments: [attachmentFor(id)],
       },
@@ -401,7 +402,7 @@ describe("runtime images", { concurrency: false }, () => {
     const started = await executeCommand({
       id: "start-no-images",
       kind: "startTask",
-      startTask: { source: "codex", projectPath: "C:/work/demo", prompt: "hello" },
+      startTask: { source: "codex", projectPath: projectDir, prompt: "hello" },
     });
     assert.equal(started.ok, true, started.error);
     assert.deepEqual(calls.find((call) => call.method === "start")?.args?.[2], []);
