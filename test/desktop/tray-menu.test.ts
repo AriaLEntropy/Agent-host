@@ -14,6 +14,7 @@ function status(overrides: Partial<HostStatus> = {}): HostStatus {
     connection: "connected",
     relayConfigured: true,
     paired: false,
+    revoked: false,
     hostName: "DESKTOP-1",
     pendingCount: 0,
     agents: [],
@@ -39,6 +40,10 @@ describe("tray view", () => {
     assert.equal(statusLabel(status()), "已连接 · 无待处理");
     assert.equal(statusLabel(status({ pendingCount: 2 })), "已连接 · 待处理 2");
     assert.equal(statusLabel(status({ connection: "unpaired" })), "未配对");
+    assert.equal(
+      statusLabel(status({ connection: "unpaired", revoked: true })),
+      "已解除配对",
+    );
     assert.equal(statusLabel(status({ connection: "disconnected" })), "连接中断");
     assert.equal(statusLabel(status({ relayConfigured: false })), "未配置 Relay");
   });
@@ -111,6 +116,10 @@ describe("tray view", () => {
     assert.equal(trayIconName(status({ pendingCount: 12 })), "tray-connected-9plus.png");
     assert.equal(trayTooltip(status({ pendingCount: 2 })), "AgentBus · 已连接 · 待处理 2");
     assert.equal(trayTooltip(status({ connection: "unpaired" })), "AgentBus · 未配对");
+    assert.equal(
+      trayTooltip(status({ connection: "unpaired", revoked: true })),
+      "AgentBus · 已解除配对",
+    );
     assert.equal(trayTooltip(status({ relayConfigured: false })), "AgentBus · 未配置 Relay");
   });
 });

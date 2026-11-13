@@ -127,7 +127,7 @@
   }
   function stateLabel() {
     if (!view.relayConfigured) return "未配置 Relay";
-    if (view.connection === "unpaired") return "未配对";
+    if (view.connection === "unpaired") return view.revoked ? "已解除配对" : "未配对";
     if (view.connection === "disconnected") return "连接中断";
     return "已连接";
   }
@@ -169,8 +169,8 @@
       '<div class="inline-err hidden" id="relay-err">' + alertIcon() + ' <span></span></div>' +
       '<div class="inline-ok hidden" id="relay-ok">连接成功</div>' +
       '<div class="frow"><button class="btn" id="test">测试连接</button><button class="btn" id="detect">检测本机 Relay</button><span class="sp"></span><button class="btn pri" id="save" disabled>保存并重连</button></div>' +
-      '<div class="setrow" style="margin-top:14px"><span class="k"><b>手机配对</b><span>' + (view.paired ? "已配对；添加手机会保留当前手机" : "当前未配对") + '</span></span>' +
-        '<button class="btn" id="repair">' + (view.paired ? "添加手机…" : "配对手机…") + '</button></div>' +
+      '<div class="setrow" style="margin-top:14px"><span class="k"><b>手机配对</b><span>' + (view.paired ? "已配对；添加手机会保留当前手机" : view.revoked ? "这台电脑已被手机端解除配对，需要重新扫码" : "当前未配对") + '</span></span>' +
+        '<button class="btn" id="repair">' + (view.paired ? "添加手机…" : view.revoked ? "重新配对…" : "配对手机…") + '</button></div>' +
       (view.paired ? '<div class="grp">已连接的手机</div><div id="device-list"><div class="well">正在读取…</div></div>' : "") +
       (view.paired ? '<div class="grp">危险操作</div>' +
         '<div class="setrow"><span class="k"><b>解除全部配对</b><span>断开这台电脑上的所有手机；不清除本机缓存与 Agent 配置</span></span>' +

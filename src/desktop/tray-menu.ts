@@ -3,7 +3,7 @@ import type { HostStatus } from "./host-controller.js";
 
 export function statusLabel(status: HostStatus): string {
   if (!status.relayConfigured) return "未配置 Relay";
-  if (status.connection === "unpaired") return "未配对";
+  if (status.connection === "unpaired") return status.revoked ? "已解除配对" : "未配对";
   if (status.connection === "disconnected") return "连接中断";
   return status.pendingCount > 0
     ? `已连接 · 待处理 ${status.pendingCount}`
@@ -27,7 +27,7 @@ export function agentStateLabel(agent: {
 
 export function trayTooltip(status: HostStatus): string {
   if (!status.relayConfigured) return "AgentBus · 未配置 Relay";
-  if (status.connection === "unpaired") return "AgentBus · 未配对";
+  if (status.connection === "unpaired") return status.revoked ? "AgentBus · 已解除配对" : "AgentBus · 未配对";
   if (status.connection === "disconnected") return "AgentBus · 连接中断";
   return status.pendingCount > 0
     ? `AgentBus · 已连接 · 待处理 ${status.pendingCount}`
@@ -113,7 +113,7 @@ function panelEntries(status: HostStatus): PanelEntry[] {
     ];
   }
   return [
-    { id: "pair", label: status.paired ? "添加手机…" : "配对手机…" },
+    { id: "pair", label: status.paired ? "添加手机…" : status.revoked ? "重新配对…" : "配对手机…" },
     { id: "settings", label: "设置…" },
   ];
 }

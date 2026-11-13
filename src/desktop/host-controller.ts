@@ -25,6 +25,8 @@ export type HostStatus = {
   relayConfigured: boolean;
   /** 是否已持有 hostToken */
   paired: boolean;
+  /** 曾经配对、后来被手机端移除或解散；与从未配对区分 */
+  revoked: boolean;
   hostName: string;
   pendingCount: number;
   agents: LocalAgentSummary[];
@@ -42,6 +44,7 @@ export type SettingsInfo = {
   publicRelayUrl: string;
   relayConfigured: boolean;
   paired: boolean;
+  revoked: boolean;
   connection: ConnectionState;
   hostName: string;
   version: string;
@@ -87,6 +90,7 @@ export class HostController {
   private timer?: NodeJS.Timeout;
   private unsubscribeBus?: () => void;
   private authRejected = false;
+  private revoked = false;
   private lastSignature = "";
   private pairingTicket?: PairingTicket;
 
@@ -96,6 +100,7 @@ export class HostController {
       skipRelayHealth: true,
       onAuthRejected: () => {
         this.authRejected = true;
+        this.revoked = true;
         this.emit();
       },
       onGroupRevoked: () => {
@@ -117,6 +122,7 @@ export class HostController {
       hostName: this.running?.config.hostName ?? "Agent Host",
       relayConfigured: Boolean(this.running?.config.relay.trim()),
       paired: Boolean(this.running?.config.hostToken),
+      revoked: this.revoked,
       pendingCount: busStore.pendingRequestCount(),
       agents: localAgents(),
       manifestProblems: localManifestProblems(),
@@ -149,6 +155,7 @@ export class HostController {
       publicRelayUrl: config?.publicRelayUrl ?? "",
       relayConfigured: Boolean(config?.relay.trim()),
       paired: Boolean(config?.hostToken),
+      revoked: this.revoked,
       connection: this.connectionState(),
       hostName: config?.hostName ?? "Agent Host",
       version: PLUGIN_VERSION,
@@ -181,6 +188,7 @@ export class HostController {
       this.running.client = undefined;
     }
     this.authRejected = false;
+    this.revoked = true;
     this.emit();
   }
 
@@ -216,6 +224,7 @@ export class HostController {
       this.running.client = undefined;
     }
     this.authRejected = false;
+    this.revoked = false;
     this.emit();
     return { ok: true };
   }
@@ -417,6 +426,7 @@ export class HostController {
     const client = new RelayClient(next, {
       onAuthRejected: () => {
         this.authRejected = true;
+        this.revoked = true;
         this.emit();
       },
     });
@@ -430,6 +440,7 @@ export class HostController {
       await client.start();
       await startConnectorWatcher();
       this.authRejected = false;
+      this.revoked = false;
     } catch {
       // Relay 暂时不可达：保留 client，托盘显示连接中断
     }
